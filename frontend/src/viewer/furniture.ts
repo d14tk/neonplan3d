@@ -68,6 +68,13 @@ class Builder {
     if (edges) this.outline(poly, y0, y1, edges);
   }
 
+  /** A continuous plate, including concave contours, with closed top and bottom. */
+  polygon(points: Vec2[], y0: number, y1: number, side: number, top: number, edges: Color | null): void {
+    const poly = ccw(points.map(([x, z]) => this.tf(x, z)));
+    pushPrism(this.buf, poly, y0, y1, side, top, { aoFrom: 0, bottom: true });
+    if (edges) this.outline(poly, y0, y1, edges);
+  }
+
   /** A box whose top face is the rectangle `t` (sloped sides): hoods, windscreens, tapered shades. */
   loft(b: [number, number, number, number], t: [number, number, number, number], y0: number, y1: number, side: number, top = side, edges: Color | null = null): void {
     if (y1 - y0 < 1e-4) return;
@@ -137,9 +144,9 @@ class Builder {
   }
 
   private outline(poly: Vec2[], y0: number, y1: number, color: Color): void {
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < poly.length; i++) {
       const a = poly[i];
-      const b = poly[(i + 1) % 4];
+      const b = poly[(i + 1) % poly.length];
       this.line(a, b, y1, y1, color);
       this.line(a, a, y0, y1, color);
     }
@@ -1837,7 +1844,9 @@ function packModel(
     const edges = p.edges === "glow" ? EDGE_TOP : p.edges === "faint" ? EDGE_FAINT : p.edges ? EDGE_FURN : null;
     // a turned part draws through a builder whose coordinates turn around the part's centre
     const bb = p.rot ? b.rotated(p.x * w, p.z * d, p.rot) : b;
-    if (p.shape === "cyl" && (p.axis === "x" || p.axis === "z")) {
+    if (p.shape === "poly" && p.points) {
+      bb.polygon(p.points.map(([x, z]) => [(p.x + x * p.w) * w, (p.z + z * p.d) * d]), y0, y1, side, top, edges);
+    } else if (p.shape === "cyl" && (p.axis === "x" || p.axis === "z")) {
       bb.lyingCyl(p.axis, p.x * w, p.z * d, y0, y1, p.axis === "x" ? p.w * w : p.d * d, p.axis === "x" ? p.d * d : p.w * w, side, top, 14, edges);
     } else if (p.shape === "cyl") bb.cyl(p.x * w, p.z * d, (Math.min(p.w * w, p.d * d)) / 2, y0, y1, side, top, 14, edges);
     else if (p.shape === "loft") {

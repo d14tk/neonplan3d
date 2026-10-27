@@ -18,7 +18,9 @@ export function isPackCooktop(type: string): boolean {
 
 export interface PackPart {
   /** A box, a cylinder, or a loft: a box whose top face is another rectangle (sloped sides). */
-  shape: "box" | "cyl" | "loft";
+  shape: "box" | "cyl" | "loft" | "poly";
+  /** Extruded contour, relative to this part's centre and width/depth (-0.5..0.5). */
+  points?: [number, number][];
   /** Centre across and in depth (fractions -0.5..0.5 of the item's width and depth, front at +z). */
   x: number;
   z: number;

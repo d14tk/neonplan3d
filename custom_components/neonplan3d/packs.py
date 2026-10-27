@@ -121,7 +121,11 @@ _METRES = vol.All(vol.Coerce(float), vol.Range(min=0.01, max=10))
 # and height of the item height. A cylinder's diameter is the smaller of w and d.
 PART_SCHEMA = vol.Schema(
     {
-        vol.Required("shape"): vol.In(["box", "cyl", "loft"]),
+        vol.Required("shape"): vol.In(["box", "cyl", "loft", "poly"]),
+        vol.Optional("points"): vol.All(
+            [vol.All(list, vol.Length(min=2, max=2), [_FRACTION])],
+            vol.Length(min=3, max=128),
+        ),
         vol.Required("x"): _FRACTION,
         vol.Required("z"): _FRACTION,
         vol.Required("w"): _SPAN,
@@ -150,6 +154,43 @@ PART_SCHEMA = vol.Schema(
         vol.Optional("fix"): vol.All(str, vol.Match(r"^[wdh]{1,3}$")),
     }
 )
+
+
+def _validate_polygon_part(part):
+    """Reject missing, degenerate or crossing contours before triangulation."""
+    if part["shape"] != "poly":
+        if "points" in part:
+            raise vol.Invalid("points require shape poly")
+        return part
+    pts = part.get("points", [])
+    if len(pts) < 3 or len(set(map(tuple, pts))) != len(pts):
+        raise vol.Invalid("poly needs distinct contour vertices")
+    area = sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(pts, pts[1:] + pts[:1], strict=True))
+    if abs(area) < 1e-8:
+        raise vol.Invalid("poly must have positive area")
+
+    def cross(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    edges = list(zip(pts, pts[1:] + pts[:1], strict=True))
+    for i, (a, b) in enumerate(edges):
+        for j in range(i + 1, len(edges)):
+            if j == i + 1 or (i == 0 and j == len(edges) - 1):
+                continue
+            c, d = edges[j]
+            if (
+                max(a[0], b[0]) < min(c[0], d[0])
+                or max(c[0], d[0]) < min(a[0], b[0])
+                or max(a[1], b[1]) < min(c[1], d[1])
+                or max(c[1], d[1]) < min(a[1], b[1])
+            ):
+                continue
+            if cross(a, b, c) * cross(a, b, d) <= 0 and cross(c, d, a) * cross(c, d, b) <= 0:
+                raise vol.Invalid("poly contour must not intersect itself")
+    return part
+
+
+PART_SCHEMA = vol.All(PART_SCHEMA, _validate_polygon_part)
 
 # Plan symbol in the same fractions (optional: without it the parts are drawn from above).
 SYMBOL_SCHEMA = vol.Any(

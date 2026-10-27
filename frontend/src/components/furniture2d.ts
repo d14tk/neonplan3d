@@ -262,9 +262,17 @@ function packSymbol(item: PackItem, w: number, d: number): Part[] {
     );
   }
   return item.parts
-    .filter((p) => p.w < 0.98 || p.d < 0.98)
-    .map((p) =>
-      p.shape === "cyl" && (p.axis ?? "y") === "y"
+    .filter((p) => p.shape === "poly" || p.w < 0.98 || p.d < 0.98)
+    .flatMap((p) =>
+      p.shape === "poly" && p.points
+        ? p.points.map((a, i) => {
+            const b = p.points![(i + 1) % p.points!.length];
+            const angle = ((p.rot ?? 0) * Math.PI) / 180;
+            const at = ([x, z]: [number, number]) => [p.x * w + x * p.w * w * Math.cos(angle) - z * p.d * d * Math.sin(angle), p.z * d + x * p.w * w * Math.sin(angle) + z * p.d * d * Math.cos(angle)];
+            const aa = at(a), bb = at(b);
+            return line(aa[0], aa[1], bb[0], bb[1]);
+          })
+        : p.shape === "cyl" && (p.axis ?? "y") === "y"
         ? circle(p.x * w, p.z * d, Math.min(p.w * w, p.d * d) / 2)
         : rect((p.x - p.w / 2) * w, (p.z - p.d / 2) * d, (p.x + p.w / 2) * w, (p.z + p.d / 2) * d),
     );
