@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { emptyBuilding, newFloor, ROOF_SHAPES, type Room, type RoofSection } from "./model.ts";
-import { cutHole, dormerHole, dormerHoles, dormerParent, floorOutline, offsetPolygon, polygonBox, proposeDormer, ridgeHeight, roofRider, roofSectionsFromRooms, roofUnderAt, sectionFrame, sectionGeometry, sectionHeightAt, sectionOverhang, sectionPolygon, sectionProfile, wallTopUnder } from "./roof-sections.ts";
+import { onSection, sectionTurn, turnPoint, turnSectionAbout, coversIn, cutHole, cutUnder, dormerHole, dormerHoles, dormerParent, floorOutline, lineOutside, sectionCovers, sectionEnds, sectionUV, wingJunction, wingSection, offsetPolygon, polygonBox, proposeDormer, ridgeHeight, roofRider, roofSectionsFromRooms, roofUnderAt, sectionFrame, sectionGeometry, sectionHeightAt, sectionOverhang, sectionPolygon, sectionProfile, wallTopUnder } from "./roof-sections.ts";
 import { buildRoof } from "./viewer/roof.ts";
 
 const near = (a: number, b: number, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
@@ -244,4 +244,176 @@ test("pulled apart, a roof rides with the loft under its slopes, a garage roof w
   assert.equal(roofRider(b, og, ["main"]), "sb");
   assert.equal(roofRider(b, og, ["d"]), "sb");
   assert.equal(roofRider(b, b.floors[0], ["gar"]), "eg");
+});
+
+test("a gable, hip or half-hip section may end differently at each end; without a choice it is as before (#466)", () => {
+  const ov = { u0: 0.4, u1: 0.4, a: 0.4, b: 0.4 };
+  // no end set: exactly the old geometry of each shape
+  for (const shape of ["gable", "hip", "halfhip"] as const) {
+    const plain = sectionGeometry(section({ shape }), ov);
+    const same = sectionGeometry(section({ shape, end_u0: shape, end_u1: null }), ov);
+    assert.deepEqual(same, plain, shape);
+    assert.deepEqual(sectionEnds(section({ shape })), [shape, shape]);
+  }
+  assert.equal(sectionEnds(section({ shape: "pyramid", end_u0: "hip" })), null);
+  // a hip at the left end only: three planes, the hip's ridge starts 4 m in (45°, 8 m deep), a gable wall on the right
+  const one = sectionGeometry(section({ end_u0: "hip" }), ov);
+  assert.equal(one.faces.length, 3);
+  near(one.ridges[0][0][0], 4);
+  near(one.ridges[0][1][0], 12 + 0.4);
+  assert.equal(one.gables[0], null);
+  assert.ok(one.gables[1] && one.gables[1].length === 3);
+  // under the hipped end the roof comes down, at the gable end it keeps the full height
+  near(sectionHeightAt(one, 0.5, 4)!, 3.5);
+  near(sectionHeightAt(one, 11.5, 4)!, 7);
+  // a hip shape with a half-hip on the right
+  const mixed = sectionGeometry(section({ shape: "hip", end_u1: "halfhip" }), ov);
+  assert.equal(mixed.faces.length, 4);
+  assert.ok(mixed.gables[1] && mixed.gables[1].length === 4, "the half-hip's wall ends under its hip");
+});
+
+/** An L: a main roof along x (12 × 8, its ridge at z = 4) and a lower wing along z running into its slope (#605). */
+const main = section({ id: "main", x0: -0.24, z0: -0.24, x1: 12.24, z1: 8.24, eave_a: 2.75, eave_b: 2.75, pitch_a: 40, pitch_b: 40, base: 2.75 });
+const wing = section({ id: "wing", x0: 5.76, z0: 7.76, x1: 11.24, z1: 14.24, shape: "halfhip", axis: "z", eave_a: 2.75, eave_b: 2.75, pitch_a: 40, pitch_b: 40, base: 2.75 });
+
+test("a wing running into the slope of a higher roof reaches on to its ridge line and is cut off where it goes under it (#605)", () => {
+  const all = [main, wing];
+  const j = wingJunction(all, wing);
+  assert.ok(j && j.host === main && j.end === 0, "the wing's top end meets the main roof");
+  assert.equal(wingJunction(all, main), null);
+  // a section on its own, and a dormer, are no wings
+  assert.equal(wingJunction([main], main), null);
+  assert.equal(wingJunction([main, { ...wing, dormer: true }], { ...wing, dormer: true }), null);
+  // drawn on to the ridge line (z = 4), a gable at that end, the half-hip at its free end
+  const drawn = wingSection(wing, j!);
+  near(drawn.z0, 4);
+  near(drawn.z1, 14.24);
+  assert.deepEqual(sectionEnds(drawn), ["gable", "halfhip"]);
+  // what is left of the wing lies nowhere under the main roof's planes
+  const ov = { u0: 0, u1: 0.4, a: 0.4, b: 0.4 };
+  const mainGeo = sectionGeometry(main, { u0: 0.4, u1: 0.4, a: 0.4, b: 0.4 });
+  const covers = coversIn(drawn, sectionCovers(main, mainGeo.faces));
+  const pieces = sectionGeometry(drawn, ov).faces.flatMap((f) => cutUnder(f, covers));
+  const fr = sectionFrame(drawn);
+  for (const piece of pieces) {
+    const cu = piece.reduce((a, q) => a + q[0], 0) / piece.length;
+    const cv = piece.reduce((a, q) => a + q[1], 0) / piece.length;
+    const cy = piece.reduce((a, q) => a + q[2], 0) / piece.length;
+    const [x, z] = fr.at(cu, cv);
+    // over the main roof's walls (under its overhang only its slab counts)
+    if (z > 8.24) continue;
+    const [mu, mv] = sectionUV(main, x, z);
+    const roof = sectionHeightAt(mainGeo, mu, mv);
+    assert.ok(roof === null || cy >= roof - 0.15, `a wing piece at ${x.toFixed(2)}, ${z.toFixed(2)} lies ${(roof! - cy).toFixed(2)} m under the main roof`);
+  }
+  // its ridge ends where it meets the main slope: 5.05 m high, the main slope reaches that 1.5 m in from the ridge
+  const ridge = sectionGeometry(drawn, ov).ridges[0];
+  const kept = lineOutside(ridge[0], ridge[1], covers);
+  assert.equal(kept.length, 1);
+  const start = Math.min(kept[0][0][0], kept[0][1][0]);
+  near(start, 4 + (6.31 - 5.05) / Math.tan((40 * Math.PI) / 180), 0.05);
+});
+
+test("overlapping sections keep only what shows above the other; a single section is drawn as before (#466)", () => {
+  const b = emptyBuilding();
+  b.floors = [{ ...newFloor("eg", "EG", 0), height: 2.75, rooms: [rect("a", 0, 0, 12, 8), rect("b", 6, 8, 11, 14)] }];
+  // one section alone: the same triangles as drawn by itself
+  b.settings.roof = { type: "custom", pitch: 40, overhang: 0.4, sections: [main] };
+  const alone = buildRoof(b)[0].solid.count;
+  b.settings.roof = { type: "custom", pitch: 40, overhang: 0.4, sections: [main, wing] };
+  const [part] = buildRoof(b);
+  assert.ok(part.solid.count > alone);
+  // no roof triangle lies well below another section's roof over that section's walls
+  const tops = [main, wing].map((s) => ({ s, g: sectionGeometry(s, { u0: 0, u1: 0, a: 0, b: 0 }) }));
+  const top = (x: number, z: number) =>
+    Math.max(
+      ...tops.map(({ s, g }) => {
+        if (x < s.x0 + 0.02 || x > s.x1 - 0.02 || z < s.z0 + 0.02 || z > s.z1 - 0.02) return -Infinity;
+        const [u, v] = sectionUV(s, x, z);
+        return sectionHeightAt(g, u, v) ?? -Infinity;
+      }),
+    );
+  const p = part.solid.p;
+  for (let i = 0; i < p.length; i += 9) {
+    const x = (p[i] + p[i + 3] + p[i + 6]) / 3;
+    const y = (p[i + 1] + p[i + 4] + p[i + 7]) / 3 + part.floor.elevation + part.base;
+    const z = (p[i + 2] + p[i + 5] + p[i + 8]) / 3;
+    assert.ok(!(y < top(x, z) - 0.3), `a triangle at ${x.toFixed(2)}, ${z.toFixed(2)} lies under the roof`);
+  }
+});
+
+test("a turned section: its frame, its footprint and the plan point back in its frame all turn about the pivot (#634)", () => {
+  const plain = section();
+  const turned = section({ rotation: 90, pivot: [6, 4] });
+  assert.equal(sectionTurn(plain), null);
+  // 90° clockwise in the plan about the middle: the ridge (along x) now runs along z
+  const fp = sectionFrame(plain);
+  const ft = sectionFrame(turned);
+  const ridge0 = ft.at(fp.u0, 4);
+  const ridge1 = ft.at(fp.u1, 4);
+  near(ridge0[0], 6);
+  near(ridge1[0], 6);
+  near(Math.abs(ridge1[1] - ridge0[1]), 12);
+  // there and back again
+  const [u, v] = sectionUV(turned, ...ft.at(3, 2));
+  near(u, 3);
+  near(v, 2);
+  // the footprint: 8 wide and 12 long now
+  const poly = sectionPolygon(turned, 0);
+  const xs = poly.map((p) => p[0]);
+  const zs = poly.map((p) => p[1]);
+  near(Math.max(...xs) - Math.min(...xs), 8);
+  near(Math.max(...zs) - Math.min(...zs), 12);
+  // on the turned section, not on the old rectangle's far corner
+  assert.ok(onSection(turned, 6, -1.5));
+  assert.ok(!onSection(turned, 11.5, 1));
+  near(turnPoint(sectionTurn(turned), [12, 4])[0], 6);
+});
+
+test("walls end under a turned roof where it really lies; nothing changes for a roof that is not turned", () => {
+  const plain = section();
+  const turned = section({ rotation: 30 });
+  const holder = (s: RoofSection) => ({ settings: { roof: { type: "custom" as const, pitch: 35, overhang: 0.4, sections: [s] } } });
+  // the ridge of the turned roof runs through its middle at 30°: on it the roof is as high as the ridge
+  const t = sectionTurn(turned)!;
+  const onRidge = turnPoint(t, [9, 4]);
+  near(roofUnderAt(holder(turned), onRidge[0], onRidge[1])!, roofUnderAt(holder(plain), 9, 4)!);
+  // the old rectangle's corner lies outside the turned roof
+  assert.equal(roofUnderAt(holder(turned), 11.8, 0.2), null);
+});
+
+test("a dormer on a turned section turns with it and still finds its parent and its hole (#634)", () => {
+  const parent = section({ x1: 14, z1: 10, rotation: 25, pivot: [7, 5] });
+  const d = proposeDormer(parent, "a", "d1");
+  assert.equal(d.rotation, 25);
+  assert.deepEqual(d.pivot, [7, 5]);
+  assert.equal(dormerParent([parent, d], d), parent);
+  const hole = dormerHole(parent, d)!;
+  near(hole.u1 - hole.u0, 2, 1e-6);
+  near(hole.v0, 0, 1e-6);
+});
+
+test("a turned wing is not joined at right angles: the other roof's planes cut it instead", () => {
+  const main = section({ x1: 14, z1: 10 });
+  const wing = section({ id: "w", x0: 4, z0: 8, x1: 10, z1: 16, axis: "z", eave_a: 3, eave_b: 3, rotation: 20 });
+  assert.equal(wingJunction([main, wing], wing), null);
+});
+
+test("turning a roof takes its dormer along: both turn about the roof's point and the dormer stays on it", () => {
+  const parent = section({ x1: 14, z1: 10 });
+  const d = proposeDormer(parent, "a", "d1");
+  const p: [number, number] = [7, 5];
+  const tp = turnSectionAbout(parent, 40, p);
+  const td = turnSectionAbout(d, 40, p);
+  assert.equal(tp.rotation, 40);
+  assert.deepEqual(tp.pivot, p);
+  assert.equal(dormerParent([tp, td], td), tp);
+  // the dormer's hole in its parent stays where it was
+  const before = dormerHole(parent, d)!;
+  const after = dormerHole(tp, td)!;
+  for (const k of ["u0", "u1", "v0", "v1"] as const) near(after[k], before[k], 1e-6);
+  // turning on and back again gives the roof as it was, its point kept
+  const back = turnSectionAbout(turnSectionAbout(parent, 200, p), -200, p);
+  assert.equal(back.rotation, 0);
+  for (const k of ["x0", "z0", "x1", "z1"] as const) near(back[k], parent[k]);
 });

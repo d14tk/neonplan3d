@@ -152,10 +152,11 @@ async def test_opening_fields_get_defaults(hass: HomeAssistant, hass_ws_client) 
         "well": True,
         "well_rim": None,
         "shut": False,
+        "open_angle": None,
         "wall": None,
         "mark": None,
         "confirm": False,
-        # FORK d14tk: a window's own sill board and where the frame sits in the wall (see FORK.md)
+        # FORK d14tk: where the frame sits in the wall (see FORK.md)
         "sill_board": "auto",
         "frame_pos": None,
     }

@@ -21,6 +21,8 @@ export interface OpeningState {
   cover: number | null;
   /** A sensor reports the state (contact, tilt sensor or cover); without one "closed" is a guess. */
   sensed?: boolean;
+  /** The door's smart lock is unlocked: the leaf's free edge glows softly (#682). */
+  unlocked?: boolean;
 }
 
 export const CLOSED: OpeningState = { open: 0, open2: 0, tilt: 0, tilt2: 0, cover: null };
@@ -31,9 +33,13 @@ const SASH = 0x22375f;
 const SILL = 0x1c2a47;
 const BLIND_BOX = 0x16223a;
 const OPEN_WARM = 0xffb547;
+/** The stock accent: the leaf edge of an unlocked door (takes the user's accent in the neon look). */
+const UNLOCKED = 0x37e0ff;
 
 const OPEN_ANGLE = 1.2;
 const DOOR_ANGLE = 1.5;
+/** How far a door without a sensor stands open (devices.ts DOOR_DEFAULT_OPEN): its own angle counts in full. */
+const SENSORLESS_OPEN = 0.5;
 const LEAF = 0x1c2c4d;
 const LEAF_TOP = 0x27406b;
 const LEAF_FRONT = 0x111a30;
@@ -131,14 +137,12 @@ export function stackedOnOpening(info: OpeningInfo, infos: readonly OpeningInfo[
 
 /** Which of the window board (inside) and the sill (outside) a window gets, by its setting and position. */
 export function sillBoards(info: OpeningInfo, infos: readonly OpeningInfo[]): { inside: boolean; outside: boolean } {
-  // FORK d14tk: the window's own sill board (see FORK.md)
   const mode = info.opening.sill_board ?? "auto";
   if (mode === "none") return { inside: false, outside: false };
-  if (mode === "inside" || mode === "outside") {
-    const room = info.sill > 0.05;
-    return { inside: room && mode === "inside", outside: room && mode === "outside" };
-  }
-  const auto = info.sill > 0.3 && !stackedOnOpening(info, infos);
+  // chosen by hand it is drawn on any window, a floor-to-ceiling one too (at the floor, #702)
+  if (mode === "inside" || mode === "outside") return { inside: mode === "inside", outside: mode === "outside" };
+  // a glass wall has none unless chosen
+  const auto = info.sill > 0.3 && !stackedOnOpening(info, infos) && openingStyle(info.opening, info.exterior) !== "glass_wall";
   return { inside: auto, outside: auto && info.exterior };
 }
 
@@ -165,6 +169,18 @@ export interface OpeningParts {
   frameTris: { id: string; start: number; end: number }[];
   glassTris: { id: string; start: number; end: number }[];
   blindTris: { id: string; start: number; end: number }[];
+}
+
+/**
+ * The window board inside and the sill outside, by the window's setting. On a window down to the floor they lie
+ * on the floor's level (a board chosen there was not drawn at all, #702).
+ */
+function boardsOf(info: OpeningInfo, infos: readonly OpeningInfo[], frames: GeoBuffer, tf: Tf, mid: number, fd: number, top: Color, cut: number, bucket: number): void {
+  const boards = sillBoards(info, infos);
+  const W = info.width;
+  const S = Math.max(info.sill, 0.03);
+  if (boards.inside) splitBox(frames, tf, -0.04, W + 0.04, mid + fd, info.faceRoom + 0.07, S - 0.03, S, new Color(SILL), top, cut, bucket);
+  if (boards.outside) splitBox(frames, tf, -0.03, W + 0.03, -info.faceOut - 0.06, mid - fd, S - 0.04, S - 0.02, new Color(SILL), top, cut, bucket);
 }
 
 export function buildOpeningParts(infos: readonly OpeningInfo[], states: ReadonlyMap<string, OpeningState>, cut: number): OpeningParts {
@@ -238,9 +254,16 @@ export function buildOpeningParts(infos: readonly OpeningInfo[], states: Readonl
       }
       const leaves: [boolean, number][] = passage ? [] : [[info.hingeAtStart, st.open]];
       if (two && !passage) leaves.push([!info.hingeAtStart, st.open2 ?? 0]);
+      // a door's own opening angle: the leaf stands that far open (without a sensor) or opens that far (with one)
+      const ownAngle = info.opening.open_angle;
       for (const [atStart, openness] of leaves) {
         const open = Math.min(1, Math.max(0, openness));
-        const theta = style === "sliding" ? 0 : open * DOOR_ANGLE;
+        const theta =
+          style === "sliding"
+            ? 0
+            : ownAngle != null && ownAngle > 0
+              ? (st.sensed ? open : Math.min(1, open / SENSORLESS_OPEN)) * Math.min(170, ownAngle) * (Math.PI / 180)
+              : open * DOOR_ANGLE;
         // a sliding leaf runs along the wall face past the hinge side instead of turning
         const slide = style === "sliding" ? open * lw : 0;
         const leafTf: Tf = (u, n, y) => {
@@ -263,8 +286,11 @@ export function buildOpeningParts(infos: readonly OpeningInfo[], states: Readonl
         } else {
           splitBox(frames, leafTf, 0, lw, -thick, 0, 0.01, T - 0.01, leafC, leafTop, cut, leafBucket);
         }
-        if (style === "front_glass") panel(glass, leafTf, 0.12, lw - 0.12, 0.001, T * 0.55, T - 0.18, GLASS, cut, leafBucket);
-        else if (front) panel(glass, leafTf, 0.1, 0.18, 0.001, 0.3, T - 0.3, GLASS, cut, leafBucket);
+        // the pane on both faces of the solid leaf: from outside the leaf hid it (#712)
+        for (const n of [0.001, -thick - 0.001]) {
+          if (style === "front_glass") panel(glass, leafTf, 0.12, lw - 0.12, n, T * 0.55, T - 0.18, GLASS, cut, leafBucket);
+          else if (front) panel(glass, leafTf, 0.1, 0.18, n, 0.3, T - 0.3, GLASS, cut, leafBucket);
+        }
         // handle on both sides: a knob on a room door, a bar on a front door
         const hy = Math.min(1.05, T * 0.5);
         const hh = front ? 0.3 : 0.012;
@@ -272,6 +298,8 @@ export function buildOpeningParts(infos: readonly OpeningInfo[], states: Readonl
         const hx1 = front ? lw - 0.08 : lw - 0.05;
         splitBox(frames, leafTf, hx0, hx1, 0.004, 0.05, hy - hh, hy + hh, new Color(HANDLE), new Color(HANDLE_TOP), cut, leafBucket);
         splitBox(frames, leafTf, hx0, hx1, -thick - 0.05, -thick - 0.004, hy - hh, hy + hh, new Color(HANDLE), new Color(HANDLE_TOP), cut, leafBucket);
+        // an unlocked smart lock: a soft accent strip along the leaf's free edge, on both faces (#682)
+        if (st.unlocked && atStart === info.hingeAtStart) splitBox(frames, leafTf, lw - 0.022, lw + 0.004, -thick - 0.006, 0.006, 0.03, T - 0.03, shade(UNLOCKED, 0.85), shade(UNLOCKED, 1), cut, leafBucket);
       }
     } else if (info.opening.type === "garage") {
       // sectional door: the closed part hangs in the opening, the open part lies under the ceiling
@@ -290,6 +318,7 @@ export function buildOpeningParts(infos: readonly OpeningInfo[], states: Readonl
       splitBox(frames, tf, W - fw, W, mid - fd, mid + fd, S, T, frameC, frameTop, cut, bucket);
       splitBox(frames, tf, fw, W - fw, mid - fd, mid + fd, S, S + 0.03, frameC, frameTop, cut, bucket);
       splitBox(frames, tf, fw, W - fw, mid - fd, mid + fd, T - fw, T, frameC, frameTop, cut, bucket);
+      boardsOf(info, infos, frames, tf, mid, fd, frameTop, cut, bucket);
       const n = Math.max(1, Math.round((W - 2 * fw) / 0.9));
       const pane = (W - 2 * fw) / n;
       for (let k = 1; k < n; k++) {
@@ -310,9 +339,7 @@ export function buildOpeningParts(infos: readonly OpeningInfo[], states: Readonl
       splitBox(frames, tf, fw, W - fw, mid - fd, mid + fd, S, S + (S > 0.05 ? fw : 0.03), frameC, frameTop, cut, bucket);
       splitBox(frames, tf, fw, W - fw, mid - fd, mid + fd, T - fw, T, frameC, frameTop, cut, bucket);
       // window board inside and sill outside (by the window's setting; none on a transom light, #655)
-      const boards = sillBoards(info, infos);
-      if (boards.inside) splitBox(frames, tf, -0.04, W + 0.04, mid + fd, info.faceRoom + 0.07, S - 0.03, S, new Color(SILL), frameTop, cut, bucket);
-      if (boards.outside) splitBox(frames, tf, -0.03, W + 0.03, -info.faceOut - 0.06, mid - fd, S - 0.04, S - 0.02, new Color(SILL), frameTop, cut, bucket);
+      boardsOf(info, infos, frames, tf, mid, fd, frameTop, cut, bucket);
       // sashes: each rotates into the room around its hinge, or tilts around its bottom edge; a
       // double window (or French door) has two sashes meeting in the middle, each tilting on its own
       const sw = 0.055;
@@ -355,6 +382,8 @@ export function buildOpeningParts(infos: readonly OpeningInfo[], states: Readonl
         splitBox(frames, sashTf, sw, sashW - sw, n0, n1, sy0, sy0 + sw, sashC, sashTop, cut, sashBucket);
         splitBox(frames, sashTf, sw, sashW - sw, n0, n1, sy1 - sw, sy1, sashC, sashTop, cut, sashBucket);
         panel(glass, sashTf, sw, sashW - sw, (n0 + n1) / 2, sy0 + sw, sy1 - sw, alert ? shade(OPEN_WARM, 0.16) : GLASS, cut, sashBucket);
+        // a terrace door with an unlocked smart lock: the main sash's free edge glows like a door leaf's (#682)
+        if (st.unlocked && sash.atStart === info.hingeAtStart) splitBox(frames, sashTf, sashW - 0.022, sashW + 0.004, n0 - 0.006, n1 + 0.006, sy0 + 0.02, sy1 - 0.02, shade(UNLOCKED, 0.85), shade(UNLOCKED, 1), cut, sashBucket);
         if (openingStyle(info.opening, info.exterior) === "bars") {
           // glazing bars: a cross over the pane
           const ym = (sy0 + sy1) / 2;
