@@ -390,7 +390,13 @@ unterschreiben lassen.
 
 ## Version und Release
 
-HACS installiert hier aus dem Release-Asset (`hacs.json`, `zip_release`).
+HACS installiert die Dateien aus dem Release-Tag. Bis 2.0.5 lief das über das
+Release-Asset (`zip_release` in `hacs.json`); das Original hat es mit 2.0.6
+entfernt, weil GitHubs Download-Weiterleitung einen Header über aiohttps
+8-KB-Grenze schickt und damit jeder ZIP-Download scheitert
+(hacs/integration#5643). Das ZIP bleibt am Release, aber nur noch für die
+Installation von Hand.
+
 Upstream baut das ZIP im Workflow `.github/workflows/release.yml` -
 **in einem Fork laufen GitHub Actions aber erst, wenn man sie einmal von Hand
 freigibt** (Reiter *Actions* im Repo). Solange das nicht passiert ist, baut
@@ -412,7 +418,7 @@ zurücksetzen), sonst läuft dort das alte Bundle weiter.
 `--repo d14tk/neonplan3d` angeben oder einmal
 `gh repo set-default d14tk/neonplan3d` setzen.
 
-Ohne das ZIP am Release findet HACS nichts zu installieren.
+Ohne Release-Tag bietet HACS kein Update an; ein Commit auf `main` allein reicht nicht.
 
 Das Schema ist **Originalversion plus vierte Stelle**. So ist auf den ersten
 Blick zu sehen, auf welchem Release des Originals der Fork sitzt.
