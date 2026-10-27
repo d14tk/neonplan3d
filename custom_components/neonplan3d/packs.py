@@ -119,9 +119,15 @@ _METRES = vol.All(vol.Coerce(float), vol.Range(min=0.01, max=10))
 
 # Parts in fractions of the item's size: x/z centre (-0.5..0.5, front at +z), w/d extent, y/h bottom
 # and height of the item height. A cylinder's diameter is the smaller of w and d.
-PART_SCHEMA = vol.Schema(
+_PART_FIELDS = vol.Schema(
     {
-        vol.Required("shape"): vol.In(["box", "cyl", "loft"]),
+        vol.Required("shape"): vol.In(["box", "cyl", "loft", "poly", "mesh"]),
+        vol.Optional("vertices"): vol.All(list, vol.Length(min=3, max=12000)),
+        vol.Optional("triangles"): vol.All(list, vol.Length(min=1, max=16000)),
+        vol.Optional("points"): vol.All(
+            [vol.All(list, vol.Length(min=2, max=2), [_FRACTION])],
+            vol.Length(min=3, max=128),
+        ),
         vol.Required("x"): _FRACTION,
         vol.Required("z"): _FRACTION,
         vol.Required("w"): _SPAN,
@@ -150,6 +156,67 @@ PART_SCHEMA = vol.Schema(
         vol.Optional("fix"): vol.All(str, vol.Match(r"^[wdh]{1,3}$")),
     }
 )
+
+
+def _validate_polygon_part(part):
+    """Reject missing, degenerate or crossing contours before triangulation."""
+    if part["shape"] == "mesh":
+        if part.get("edges") or "top" in part:
+            raise vol.Invalid("mesh uses color only; edges and top are unsupported")
+        vertices, triangles = part.get("vertices", []), part.get("triangles", [])
+        if not vertices or not triangles or "points" in part:
+            raise vol.Invalid("mesh needs vertices and triangles")
+        for v in vertices:
+            if not isinstance(v, list) or len(v) != 3:
+                raise vol.Invalid("mesh vertex needs three coordinates")
+            for value, lo, hi in zip(v, [-0.5, 0, -0.5], [0.5, 1, 0.5], strict=True):
+                if type(value) not in (int, float) or not lo <= value <= hi:
+                    raise vol.Invalid("mesh coordinate outside its part")
+        for t in triangles:
+            if (
+                not isinstance(t, list)
+                or len(t) != 3
+                or any(type(i) is not int or not 0 <= i < len(vertices) for i in t)
+                or len(set(t)) != 3
+            ):
+                raise vol.Invalid("invalid mesh triangle indices")
+        return part
+    if "vertices" in part or "triangles" in part:
+        raise vol.Invalid("mesh data requires shape mesh")
+    if part["shape"] != "poly":
+        if "points" in part:
+            raise vol.Invalid("points require shape poly")
+        return part
+    pts = part.get("points", [])
+    if len(pts) < 3 or len(set(map(tuple, pts))) != len(pts):
+        raise vol.Invalid("poly needs distinct contour vertices")
+    area = sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(pts, pts[1:] + pts[:1], strict=True))
+    if abs(area) < 1e-8:
+        raise vol.Invalid("poly must have positive area")
+
+    def cross(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    edges = list(zip(pts, pts[1:] + pts[:1], strict=True))
+    for i, (a, b) in enumerate(edges):
+        for j in range(i + 1, len(edges)):
+            if j == i + 1 or (i == 0 and j == len(edges) - 1):
+                continue
+            c, d = edges[j]
+            if (
+                max(a[0], b[0]) < min(c[0], d[0])
+                or max(c[0], d[0]) < min(a[0], b[0])
+                or max(a[1], b[1]) < min(c[1], d[1])
+                or max(c[1], d[1]) < min(a[1], b[1])
+            ):
+                continue
+            if cross(a, b, c) * cross(a, b, d) <= 0 and cross(c, d, a) * cross(c, d, b) <= 0:
+                raise vol.Invalid("poly contour must not intersect itself")
+    return part
+
+
+# a poly contour is checked after the fields, so the two keep their own names (mypy)
+PART_SCHEMA = vol.All(_PART_FIELDS, _validate_polygon_part)
 
 # Plan symbol in the same fractions (optional: without it the parts are drawn from above).
 SYMBOL_SCHEMA = vol.Any(

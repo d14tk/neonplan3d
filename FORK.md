@@ -1,5 +1,19 @@
 # Dieser Fork: eigene Möbel
 
+## Ergänzung 1.24.0.4
+
+Begrenzte indizierte Meshes ermöglichen geformte Möbel mit tatsächlich offenen Netzflächen.
+Koordinaten und Dreiecksindizes werden validiert; Drehung, Skalierung und Spiegelung
+laufen durch denselben Möbel-Renderer. 2D kann ein eigenes Symbol verwenden. Die bisherigen
+Möbel und Plattenkonturen bleiben unterstützt. Siehe `docs/packs.md`.
+
+## Ergänzung 1.24.0.3
+
+Eigene Möbel dürfen geschlossene polygonale Platten (`poly`) verwenden. Der 3D-Renderer
+trianguliert auch konkave Konturen; der 2D-Editor zeichnet die tatsächlichen Konturen.
+Schema und Tests begrenzen und prüfen die Punkte. Damit lassen sich komplette Tische
+als ein Möbelstück ohne Quader-Raster importieren. Format siehe `docs/packs.md`.
+
 > **In short:** this fork of [Mastershort/neonplan3d](https://github.com/Mastershort/neonplan3d)
 > lets an installation import furniture packs it signed itself. Upstream accepts
 > packs from three publisher keys only. Everything else is unchanged, and packs

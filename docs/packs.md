@@ -1,5 +1,32 @@
 # Möbel-Packs
 
+## Fork 1.24.0.4: geformte Möbel und offene Netzflächen
+
+`shape: "mesh"` enthält `vertices` und `triangles`. Jeder Vertex ist `[x,y,z]`,
+relativ zur Teil-Boundingbox: x/z von −0,5 bis +0,5, y von 0 bis 1.
+Jedes Dreieck ist ein Tripel von nullbasierten Vertex-Indizes mit nach außen gerichteter
+Wicklung. Pro Teil maximal 12.000 Vertices und 16.000 Dreiecke; das gesamte signierte
+Pack bleibt auf 1 MB begrenzt. Unterschiedliche Materialien verwenden getrennte Teile.
+`color`, `rot`, Größen und Skalierung gelten wie bei anderen Teilen. `top` und
+aktivierte `edges` werden für Meshes abgelehnt. Ohne eigenes `symbol` zeigt 2D die
+Boundingboxen; für komplexe Möbel ein einfaches Draufsichtsymbol mitliefern.
+Der 3D-Bundle-Rahmen wächst für den Mesh-Renderer um 2 KB auf 794 KB.
+
+## Fork 1.24.0.3: geschlossene Plattenkonturen
+
+Der lokale Fork unterstützt zusätzlich `shape: "poly"`. `points` enthält 3 bis 128
+Punkte `[x, z]` einer einfachen, geschlossenen Kontur (ohne Wiederholung des Startpunkts).
+Die Punkte liegen zwischen −0,5 und +0,5, relativ zur Mitte und Breite/Tiefe **dieses Teils**.
+`x`, `z`, `w`, `d`, `y`, `h`, Farben und `rot` funktionieren wie bei Quadern.
+Die Kontur darf konkav sein; sie wird als geschlossener Körper mit flacher Ober- und
+Unterseite extrudiert. So brauchen gebogene Tischplatten keine überlappenden Quader.
+Packs mit `poly` benötigen diesen Fork; ältere Versionen lehnen sie ab.
+
+```json
+{"shape":"poly","x":0,"z":0,"w":1,"d":1,"y":0.96,"h":0.04,"color":"wood",
+ "points":[[-0.5,-0.5],[0.5,-0.5],[0.5,0],[0,0],[0,0.5],[-0.5,0.5]]}
+```
+
 Möbel-Packs bringen zusätzliche Möbel in NeonPlan 3D. Sie werden wie die eingebauten Möbel aus
 Quadern und Zylindern gebaut und laufen deshalb genauso flüssig auf schwachen Tablets.
 

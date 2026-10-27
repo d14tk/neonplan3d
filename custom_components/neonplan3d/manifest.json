@@ -1,15 +1,25 @@
 {
   "domain": "neonplan3d",
   "name": "NeonPlan 3D",
-  "after_dependencies": ["bluetooth", "recorder"],
-  "codeowners": ["@d14tk"],
+  "after_dependencies": [
+    "bluetooth",
+    "recorder"
+  ],
+  "codeowners": [
+    "@d14tk"
+  ],
   "config_flow": true,
-  "dependencies": ["frontend", "http", "panel_custom", "websocket_api"],
+  "dependencies": [
+    "frontend",
+    "http",
+    "panel_custom",
+    "websocket_api"
+  ],
   "documentation": "https://github.com/d14tk/neonplan3d#readme",
   "integration_type": "service",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/d14tk/neonplan3d/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "2.0.6.1"
+  "version": "2.0.6.2"
 }
