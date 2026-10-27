@@ -1,5 +1,17 @@
 # Möbel-Packs
 
+## Fork 1.24.0.4: geformte Möbel und offene Netzflächen
+
+`shape: "mesh"` enthält `vertices` und `triangles`. Jeder Vertex ist `[x,y,z]`,
+relativ zur Teil-Boundingbox: x/z von −0,5 bis +0,5, y von 0 bis 1.
+Jedes Dreieck ist ein Tripel von nullbasierten Vertex-Indizes mit nach außen gerichteter
+Wicklung. Pro Teil maximal 12.000 Vertices und 16.000 Dreiecke; das gesamte signierte
+Pack bleibt auf 1 MB begrenzt. Unterschiedliche Materialien verwenden getrennte Teile.
+`color`, `rot`, Größen und Skalierung gelten wie bei anderen Teilen. `top` und
+aktivierte `edges` werden für Meshes abgelehnt. Ohne eigenes `symbol` zeigt 2D die
+Boundingboxen; für komplexe Möbel ein einfaches Draufsichtsymbol mitliefern.
+Der 3D-Bundle-Rahmen wächst für den Mesh-Renderer um 2 KB auf 794 KB.
+
 ## Fork 1.24.0.3: geschlossene Plattenkonturen
 
 Der lokale Fork unterstützt zusätzlich `shape: "poly"`. `points` enthält 3 bis 128

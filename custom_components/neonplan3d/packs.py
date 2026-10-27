@@ -121,7 +121,9 @@ _METRES = vol.All(vol.Coerce(float), vol.Range(min=0.01, max=10))
 # and height of the item height. A cylinder's diameter is the smaller of w and d.
 PART_SCHEMA = vol.Schema(
     {
-        vol.Required("shape"): vol.In(["box", "cyl", "loft", "poly"]),
+        vol.Required("shape"): vol.In(["box", "cyl", "loft", "poly", "mesh"]),
+        vol.Optional("vertices"): vol.All(list, vol.Length(min=3, max=12000)),
+        vol.Optional("triangles"): vol.All(list, vol.Length(min=1, max=16000)),
         vol.Optional("points"): vol.All(
             [vol.All(list, vol.Length(min=2, max=2), [_FRACTION])],
             vol.Length(min=3, max=128),
@@ -158,6 +160,29 @@ PART_SCHEMA = vol.Schema(
 
 def _validate_polygon_part(part):
     """Reject missing, degenerate or crossing contours before triangulation."""
+    if part["shape"] == "mesh":
+        if part.get("edges") or "top" in part:
+            raise vol.Invalid("mesh uses color only; edges and top are unsupported")
+        vertices, triangles = part.get("vertices", []), part.get("triangles", [])
+        if not vertices or not triangles or "points" in part:
+            raise vol.Invalid("mesh needs vertices and triangles")
+        for v in vertices:
+            if not isinstance(v, list) or len(v) != 3:
+                raise vol.Invalid("mesh vertex needs three coordinates")
+            for value, lo, hi in zip(v, [-0.5, 0, -0.5], [0.5, 1, 0.5], strict=True):
+                if type(value) not in (int, float) or not lo <= value <= hi:
+                    raise vol.Invalid("mesh coordinate outside its part")
+        for t in triangles:
+            if (
+                not isinstance(t, list)
+                or len(t) != 3
+                or any(type(i) is not int or not 0 <= i < len(vertices) for i in t)
+                or len(set(t)) != 3
+            ):
+                raise vol.Invalid("invalid mesh triangle indices")
+        return part
+    if "vertices" in part or "triangles" in part:
+        raise vol.Invalid("mesh data requires shape mesh")
     if part["shape"] != "poly":
         if "points" in part:
             raise vol.Invalid("points require shape poly")

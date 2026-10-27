@@ -1,5 +1,12 @@
 # Dieser Fork: eigene Möbel
 
+## Ergänzung 1.24.0.4
+
+Begrenzte indizierte Meshes ermöglichen geformte Möbel mit tatsächlich offenen Netzflächen.
+Koordinaten und Dreiecksindizes werden validiert; Drehung, Skalierung und Spiegelung
+laufen durch denselben Möbel-Renderer. 2D kann ein eigenes Symbol verwenden. Die bisherigen
+Möbel und Plattenkonturen bleiben unterstützt. Siehe `docs/packs.md`.
+
 ## Ergänzung 1.24.0.3
 
 Eigene Möbel dürfen geschlossene polygonale Platten (`poly`) verwenden. Der 3D-Renderer

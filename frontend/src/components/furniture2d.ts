@@ -262,7 +262,7 @@ function packSymbol(item: PackItem, w: number, d: number): Part[] {
     );
   }
   return item.parts
-    .filter((p) => p.shape === "poly" || p.w < 0.98 || p.d < 0.98)
+    .filter((p) => p.shape === "poly" || p.shape === "mesh" || p.w < 0.98 || p.d < 0.98)
     .flatMap((p) =>
       p.shape === "poly" && p.points
         ? p.points.map((a, i) => {

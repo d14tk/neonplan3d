@@ -27,6 +27,20 @@ const PACK: FurniturePack = {
   ],
 };
 
+test("mesh parts preserve indexed triangles, transforms and winding when mirrored", () => {
+  const part = { shape: "mesh" as const, vertices: [[-.5,0,-.5],[.5,0,-.5],[0,1,.5]] as [number,number,number][], triangles: [[0,2,1]] as [number,number,number][], x: 0, z: 0, w: 1, d: 1, y: 0, h: 1, color: "metal" };
+  setPacks([{ ...PACK, items: [{ id: "mesh", name: { en: "mesh" }, size: [2,4,1], parts: [part] }] }]);
+  for (const mirror of [false,true]) {
+    const b = new GeoBuffer();
+    pushFurniture(b,new LineBuffer(),new GeoBuffer(),{ id:"m",type:"pack:t.cars:mesh",x:0,z:0,w:2,d:4,h:1,rotation:0,mirror,variant:null,entity:null,power:null } as Furniture);
+    assert.equal(b.count,1);
+    assert.ok(b.p.every(Number.isFinite));
+    const [ax,,az,bx,,bz,cx,,cz] = b.p;
+    assert.ok((bz-az)*(cx-ax)-(bx-ax)*(cz-az)>0);
+    assert.equal(Math.max(...b.p.filter((_,i)=>i%3===1)),1);
+  }
+});
+
 test("polygon outlines work with triangles and more than four vertices", () => {
   for (const points of [[[0, 0], [.5, 0], [0, .5]], [[-.5,-.5],[.5,-.5],[.5,0],[0,0],[0,.5],[-.5,.5]]] as [number, number][][]) {
     setPacks([{ ...PACK, items: [{ id: "edges", name: { en: "edges" }, size: [2,4,1], parts: [{ shape: "poly", points, x: 0, z: 0, w: 1, d: 1, y: .9, h: .1, color: "wood", edges: true }] }] }]);

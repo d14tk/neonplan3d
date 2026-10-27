@@ -75,9 +75,13 @@ def sign(source: Path, key: Path, licensee: str | None, out: Path | None, instan
         "sig": base64.b64encode(private.sign(packs.canonical(payload))).decode(),
     }
     target = out or source.with_suffix(".fp3dpack")
-    target.write_text(
-        json.dumps({"payload": payload, "signature": signature}, ensure_ascii=False, indent=1), encoding="utf-8"
-    )
+    envelope = {"payload": payload, "signature": signature}
+    text = json.dumps(envelope, ensure_ascii=False, indent=1)
+    if len(text) > packs.MAX_PACK_SIZE:
+        text = json.dumps(envelope, ensure_ascii=False, separators=(",", ":"))
+    if len(text) > packs.MAX_PACK_SIZE:
+        sys.exit("signed pack exceeds the import size limit")
+    target.write_text(text, encoding="utf-8")
     print(f"Signed {len(payload['items'])} items -> {target}")
 
 

@@ -69,6 +69,20 @@ class Builder {
   }
 
   /** A continuous plate, including concave contours, with closed top and bottom. */
+  mesh(vertices: [number, number, number][], triangles: [number, number, number][], color: number): void {
+    const points = vertices.map(([x, y, z]) => { const p = this.tf(x, z); return [p[0], y, p[1]]; });
+    for (const t of triangles) {
+      const a = points[t[0]], b = points[t[this.mirrored ? 2 : 1]], c = points[t[this.mirrored ? 1 : 2]];
+      const ux=b[0]-a[0], uy=b[1]-a[1], uz=b[2]-a[2], vx=c[0]-a[0], vy=c[1]-a[1], vz=c[2]-a[2];
+      const nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
+      const n=Math.hypot(nx,ny,nz);
+      if (n < 1e-12) continue;
+      const col=shade(color,.68+.32*Math.max(0,(-.35*nx+.8*ny+.45*nz)/n));
+      this.buf.tri(a,b,c,col);
+    }
+  }
+
+  /** A continuous plate, including concave contours, with closed top and bottom. */
   polygon(points: Vec2[], y0: number, y1: number, side: number, top: number, edges: Color | null): void {
     const poly = ccw(points.map(([x, z]) => this.tf(x, z)));
     pushPrism(this.buf, poly, y0, y1, side, top, { aoFrom: 0, bottom: true });
@@ -1844,7 +1858,9 @@ function packModel(
     const edges = p.edges === "glow" ? EDGE_TOP : p.edges === "faint" ? EDGE_FAINT : p.edges ? EDGE_FURN : null;
     // a turned part draws through a builder whose coordinates turn around the part's centre
     const bb = p.rot ? b.rotated(p.x * w, p.z * d, p.rot) : b;
-    if (p.shape === "poly" && p.points) {
+    if (p.shape === "mesh" && p.vertices && p.triangles) {
+      bb.mesh(p.vertices.map(([x,y,z]) => [(p.x+x*p.w)*w, y0+y*(y1-y0), (p.z+z*p.d)*d]), p.triangles, side);
+    } else if (p.shape === "poly" && p.points) {
       bb.polygon(p.points.map(([x, z]) => [(p.x + x * p.w) * w, (p.z + z * p.d) * d]), y0, y1, side, top, edges);
     } else if (p.shape === "cyl" && (p.axis === "x" || p.axis === "z")) {
       bb.lyingCyl(p.axis, p.x * w, p.z * d, y0, y1, p.axis === "x" ? p.w * w : p.d * d, p.axis === "x" ? p.d * d : p.w * w, side, top, 14, edges);
