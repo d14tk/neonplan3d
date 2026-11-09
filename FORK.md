@@ -1,5 +1,21 @@
 # Dieser Fork: eigene Möbel
 
+## Stand 3.0.3.1
+
+Upstream 3.0.3 eingepflegt, 188 Commits ab 2.0.6. Die Fork-Änderungen stehen
+unverändert daneben, zwei Stellen waren nachzuziehen:
+
+* `frontend/src/viewer/lighting.ts`: die Umrissprüfung des Forks folgt jetzt auch
+  der Schräge einer schrägen Wand (`h1`). Sonst blockt der Umriss Licht, das über
+  der Schräge vorbeigeht (Upstream #821).
+* `frontend/build.mjs`: Budget des Karten-Editors von 318 auf 320 KB, die eigenen
+  Felder des Forks passen sonst nicht hinein.
+
+Gemessen am 2026-11-09: Frontend 606 Tests grün, `tsc --noEmit` sauber, alle
+Bundles im Budget; Python 212 Tests grün mit
+`pytest-homeassistant-custom-component` 0.13.316 (Home Assistant 2026.2.3),
+`ruff check`, `ruff format --check` und `mypy custom_components/neonplan3d` sauber.
+
 ## Ergänzung 1.24.0.4
 
 Begrenzte indizierte Meshes ermöglichen geformte Möbel mit tatsächlich offenen Netzflächen.

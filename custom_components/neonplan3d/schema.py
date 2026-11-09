@@ -64,6 +64,8 @@ ROOM_SCHEMA = vol.Schema(
         # further names the voice answers to
         vol.Optional("aliases"): vol.All([vol.All(str, vol.Length(min=1, max=60))], vol.Length(max=12)),
         vol.Required("area_id"): vol.Any(None, vol.All(str, vol.Length(max=255))),
+        # the script or button that sends the robot vacuum to clean this room
+        vol.Optional("cleaning"): vol.Any(None, vol.All(str, vol.Length(max=255))),
         vol.Required("points"): vol.All([_POINT], vol.Length(min=3, max=MAX_POINTS)),
         vol.Required("floor_material"): vol.All(str, vol.Length(max=32)),
         # the camera this room opens with when it is tapped (None = framed from above)
@@ -110,13 +112,15 @@ ROOM_SCHEMA = vol.Schema(
             ],
             vol.Length(max=MAX_POINTS),
         ),
+        # what a module keeps for this room or the whole house (its settings), by the module's id
+        vol.Optional("mods"): _MODULE_DATA,
     },
     extra=vol.ALLOW_EXTRA,
 )
 
 # door looks (room door, front doors with glass and sidelights, glass and sliding door) and window looks
 _OPENING_STYLES = ["interior", "front", "front_glass", "sidelight", "sidelights", "glass", "sliding", "passage"]
-_OPENING_STYLES += ["standard", "bars", "glass_wall"]
+_OPENING_STYLES += ["standard", "bars", "glass_wall", "slide"]
 
 OPENING_SCHEMA = vol.Schema(
     {
@@ -137,6 +141,8 @@ OPENING_SCHEMA = vol.Schema(
         vol.Optional("leaves", default=1): vol.In([1, 2]),
         # doors: swing into the room ("in") or to the other side ("out")
         vol.Optional("swing", default="in"): vol.In(["in", "out"]),
+        # windows: hung at the top, the bottom opens outwards
+        vol.Optional("top_hung", default=False): bool,
         # look: None = automatic (front door in an exterior wall, room door inside; plain window)
         vol.Optional("style", default=None): vol.Any(None, vol.In(_OPENING_STYLES)),
         # front doors with sidelights: one on the hinge side, and the widths (None = automatic)
@@ -175,6 +181,10 @@ OPENING_SCHEMA = vol.Schema(
         # a window below the ground: its light well (False: none) and how far its rim stands above the ground
         vol.Optional("well", default=True): bool,
         vol.Optional("well_rim", default=None): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=-0.3, max=1))),
+        # how far the light well reaches out from the wall (None: 0.8 m)
+        vol.Optional("well_depth", default=None): vol.Any(
+            None, vol.All(vol.Coerce(float), vol.Range(min=0.2, max=1.5))
+        ),
         # highlight in 3D while open (None) or while closed ("closed": a WC or a child's room door)
         vol.Optional("mark", default=None): vol.Any(None, vol.In(["closed"])),
         # windows: board inside and sill outside, "auto" (from 0.3 m sill height, none for a window
@@ -245,6 +255,8 @@ FURNITURE_SCHEMA = vol.Schema(
         vol.Optional("glow_scale", default=None): vol.Any(
             None, vol.All(vol.Coerce(float), vol.Range(min=0.1, max=1.5))
         ),
+        # lamps: always drawn in this colour ("#rrggbb"), whatever the light reports (None = the light's colour)
+        vol.Optional("glow_color", default=None): vol.Any(None, vol.Match(r"^#[0-9a-fA-F]{6}$")),
         # linked entities (e.g. the TV's media player, a power sensor): None = automatic, "none" = no entity
         vol.Optional("entity", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
         vol.Optional("power", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
@@ -264,13 +276,15 @@ FURNITURE_SCHEMA = vol.Schema(
         # Energie Pro, inverter: its plant card moved along the eave / up the slope (m)
         vol.Optional("plant_right"): vol.All(vol.Coerce(float), vol.Range(min=-30, max=30)),
         vol.Optional("plant_up"): vol.All(vol.Coerce(float), vol.Range(min=-30, max=30)),
+        # Energie Pro, inverter: its cable ends at the grid point instead of the meter (#841)
+        vol.Optional("cable_to"): vol.Any(None, vol.In(["meter", "grid"])),
         vol.Optional("status", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
         # robot vacuum: sensor naming the room it cleans right now (None = automatic)
         vol.Optional("room_sensor", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
         # ask before switching the linked entity
         vol.Optional("confirm", default=False): bool,
         # its marker in 3D: None = automatic, always, without watts, or hidden
-        vol.Optional("marker", default=None): vol.Any(None, vol.In(["always", "no_power", "never"])),
+        vol.Optional("marker", default=None): vol.Any(None, vol.In(["always", "active", "no_power", "never"])),
         # an own symbol for the marker: a Material Design icon name without "mdi:"
         vol.Optional("icon", default=None): vol.Any(None, vol.All(str, vol.Length(max=64))),
         # parking spots: the vehicle shown (a pack item type) while the entity reports a car, its size
@@ -356,6 +370,16 @@ FURNITURE_SCHEMA = vol.Schema(
         vol.Optional("group", default=None): vol.Any(None, vol.All(str, vol.Length(max=64))),
         # fixed against moving by accident
         vol.Optional("locked", default=None): vol.Any(None, bool),
+        # shown in 3D only while an entity is in a state (decoration for a season)
+        vol.Optional("show_if", default=None): vol.Any(
+            None,
+            vol.Schema(
+                {
+                    vol.Required("entity"): vol.All(str, vol.Length(max=255)),
+                    vol.Optional("state", default=None): vol.Any(None, vol.All(str, vol.Length(max=120))),
+                }
+            ),
+        ),
         # a module's own data for this item
         vol.Optional("mods"): _MODULE_DATA,
     },
@@ -381,7 +405,7 @@ PLACEMENT_SCHEMA = vol.Schema(
         # ask before switching this device from the 3D view, the quick menu or the room panel
         vol.Optional("confirm", default=False): bool,
         # its marker in 3D: None = automatic, always, without watts, or hidden
-        vol.Optional("marker", default=None): vol.Any(None, vol.In(["always", "no_power", "never"])),
+        vol.Optional("marker", default=None): vol.Any(None, vol.In(["always", "active", "no_power", "never"])),
         # an own symbol for the marker: a Material Design icon name without "mdi:"
         vol.Optional("icon", default=None): vol.Any(None, vol.All(str, vol.Length(max=64))),
         # an own name in the plan, without renaming the entity; show_name puts it under the marker
@@ -398,6 +422,7 @@ PLACEMENT_SCHEMA = vol.Schema(
         vol.Optional("cone", default=None): vol.Any(None, bool),
         # detection pins over the camera (None = shown); off leaves only the wedge turning red
         vol.Optional("detect_pins", default=None): vol.Any(None, bool),
+        vol.Optional("detect_popup", default=False): bool,
         # fixed against moving by accident
         vol.Optional("locked", default=None): vol.Any(None, bool),
     },
@@ -489,6 +514,23 @@ POOL_SCHEMA = vol.Schema(
 
 OUTDOOR_TYPES = ["lawn", "terrace", "path", "driveway", "pool", "bed", "wild", "hedge", "fence", "pergola", "balcony"]
 
+# a gate in a fence (#818): a gap in one edge with a leaf that opens with its entity
+GATE_SCHEMA = vol.Schema(
+    {
+        vol.Required("id"): _ID,
+        vol.Required("edge"): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_POINTS)),
+        vol.Required("at"): vol.All(vol.Coerce(float), vol.Range(min=0, max=1000)),
+        vol.Required("width"): vol.All(vol.Coerce(float), vol.Range(min=0.3, max=20)),
+        vol.Optional("kind", default="swing"): vol.In(["swing", "double", "slide"]),
+        vol.Optional("flip", default=False): bool,
+        vol.Optional("outward", default=False): bool,
+        vol.Optional("entity", default=None): _ENTITY_REF,
+        vol.Optional("contact", default=None): _ENTITY_REF,
+        vol.Optional("time", default=None): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=1, max=300))),
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
 OUTDOOR_SCHEMA = vol.Schema(
     {
         vol.Required("id"): _ID,
@@ -506,6 +548,8 @@ OUTDOOR_SCHEMA = vol.Schema(
         # fences and pergolas: the closing edge is left out; pergola: X-bracing on the sides
         vol.Optional("open", default=False): bool,
         vol.Optional("bracing", default=False): bool,
+        # fences: gates cut into the edges
+        vol.Optional("gates"): vol.All([GATE_SCHEMA], vol.Length(max=20)),
         # cut out of every area beneath it that contains it
         vol.Optional("cut", default=False): bool,
         # pools: round or oval, resized as a whole
@@ -551,6 +595,14 @@ ROOF_SECTION_SCHEMA = vol.Schema(
         vol.Optional("pitch_b", default=35): vol.All(vol.Coerce(float), vol.Range(min=0, max=80)),
         vol.Required("base"): _HEIGHT,
         vol.Optional("overhang", default=None): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0, max=2))),
+        # the overhang per side set by hand (a, b, u0, u1; None = automatic, #863)
+        vol.Optional("overhang_sides"): vol.Any(
+            None,
+            vol.All(
+                [vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0, max=2)))],
+                vol.Length(min=4, max=4),
+            ),
+        ),
         vol.Optional("flip", default=False): bool,
         # a flat roof as a free shape: its footprint polygon (x0 … z1 hold the bounding box)
         vol.Optional("points", default=None): vol.Any(None, vol.All([_POINT], vol.Length(min=3, max=MAX_POINTS))),
@@ -702,6 +754,11 @@ FREE_WALL_SCHEMA = vol.Schema(
         vol.Required("b"): _POINT,
         vol.Optional("thickness", default=None): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0.02, max=1))),
         vol.Optional("height", default=None): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0.05, max=20))),
+        # a sloping top (#834): the height at end a and at end b (None = the plain height)
+        vol.Optional("slope"): vol.Any(
+            None,
+            vol.All([vol.All(vol.Coerce(float), vol.Range(min=0.05, max=20))], vol.Length(min=2, max=2)),
+        ),
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -802,6 +859,14 @@ SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("outage_entity", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
         # sunlight through the windows as patches on the floor
         vol.Optional("sun_patches", default=True): bool,
+        vol.Optional("sun_shadow", default=True): bool,
+        # what the sun's arc and compass ring stand around: the house (None, default) or the whole plot (#833)
+        vol.Optional("sun_arc"): vol.Any(None, vol.In(["house", "plot"])),
+        vol.Optional("window_glow", default=True): bool,
+        # devices switch only in an opened room; elsewhere a tap opens the room
+        vol.Optional("tap_in_room", default=False): bool,
+        # a short right click in 3D goes one step back
+        vol.Optional("right_click_back", default=False): bool,
         # fun pack "Halloween": the ghost floating through the house (on unless switched off)
         # Haushalt Pro: the hours a waste bin glows (from the day before, until on the day)
         vol.Optional("household"): vol.Any(
@@ -869,6 +934,20 @@ SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("halloween", default=None): vol.Any(
             None, vol.Schema({vol.Optional("ghost", default=True): bool}, extra=vol.ALLOW_EXTRA)
         ),
+        # fun pack "Winter & Christmas": fairy lights along the eaves, snow, the New Year's firework
+        vol.Optional("winter", default=None): vol.Any(
+            None,
+            vol.Schema(
+                {
+                    vol.Optional("roof_lights", default=True): bool,
+                    vol.Optional("roof_entity", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
+                    vol.Optional("roof_color", default=False): bool,
+                    vol.Optional("snow", default=True): bool,
+                    vol.Optional("firework", default=True): bool,
+                },
+                extra=vol.ALLOW_EXTRA,
+            ),
+        ),
         # the ground around the house: its height and the earth around cellars
         vol.Optional("terrain", default=None): vol.Any(
             None,
@@ -915,6 +994,8 @@ SETTINGS_SCHEMA = vol.Schema(
                 extra=vol.ALLOW_EXTRA,
             ),
         ),
+        # what a module keeps for this room or the whole house (its settings), by the module's id
+        vol.Optional("mods"): _MODULE_DATA,
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -943,6 +1024,8 @@ ENERGY_DEFAULTS = {
 ENERGY_SCHEMA = vol.Schema(
     {
         vol.Optional("meter", default=None): vol.Any(None, METER_SCHEMA),
+        # the cables meet at the point `meter` (e.g. the house board) instead of the meter cabinet (#841)
+        vol.Optional("hub_point"): bool,
         vol.Optional("grid", default=None): _ENTITY,
         vol.Optional("grid_invert", default=False): bool,
         vol.Optional("solar", default=None): _ENTITY,
@@ -964,6 +1047,17 @@ PRESENCE_SCHEMA = vol.Schema(
     extra=vol.ALLOW_EXTRA,
 )
 
+# A card template (see the editor's settings "Card templates"): a dashboard card on a wall tablet names it and takes
+# its options from here, so a change in the editor reaches every tablet. The options are the card's (checked there).
+CARD_TEMPLATE_SCHEMA = vol.Schema(
+    {
+        vol.Required("id"): vol.All(str, vol.Length(min=1, max=60)),
+        vol.Required("name"): vol.All(str, vol.Length(max=80)),
+        vol.Optional("config", default=dict): vol.Schema({}, extra=vol.ALLOW_EXTRA),
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
 BUILDING_SCHEMA = vol.Schema(
     {
         vol.Required("version"): 1,
@@ -971,6 +1065,7 @@ BUILDING_SCHEMA = vol.Schema(
         vol.Required("settings"): SETTINGS_SCHEMA,
         vol.Optional("energy", default=lambda: dict(ENERGY_DEFAULTS)): ENERGY_SCHEMA,
         vol.Optional("presence", default=list): vol.All([PRESENCE_SCHEMA], vol.Length(max=50)),
+        vol.Optional("card_templates"): vol.All([CARD_TEMPLATE_SCHEMA], vol.Length(max=30)),
     },
     extra=vol.ALLOW_EXTRA,
 )
