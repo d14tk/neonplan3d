@@ -308,6 +308,7 @@ const PACK_NAMES_EN: Record<string, string> = {
   pro_weather: "Pro: Weather Outside",
   pro_heat: "Pro: Heat Pro",
   pro_household: "Pro: Household Pro",
+  frames: "Digital Picture Frames",
   announce: "Module: Announcements",
   voice_answers: "Module: The house answers",
   window_watch: "Module: Window watch",

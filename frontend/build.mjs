@@ -24,7 +24,8 @@ const viewerConfig = { ...common, entryPoints: ["src/viewer/viewer3d.ts"], outfi
 // the language files (lang/*.json) are fetched with a hash of their content, so a new text is never stale
 const LANGS = ["fr", "es", "nl", "it", "hu", "da", "sv", "nb", "nn", "fi", "cs", "pl", "ro", "sl", "sk", "zh", "pt"];
 const langHash = createHash("sha256")
-  .update(LANGS.map((l) => (existsSync(`lang/${l}.json`) ? readFileSync(`lang/${l}.json`) : "")).join("\n"))
+  // line endings normalised: a file written with CRLF on Windows must give the same hash as the LF copy CI checks out
+  .update(LANGS.map((l) => (existsSync(`lang/${l}.json`) ? readFileSync(`lang/${l}.json`, "utf8").replace(/\r\n/g, "\n") : "")).join("\n"))
   .digest("hex")
   .slice(0, 12);
 const cardEditorConfig = { ...common, entryPoints: ["src/card-editor.ts"], outfile: `${out}/neonplan3d-card-editor.js`, define: { __FP3D_LANG_HASH__: JSON.stringify(langHash) } };
@@ -167,7 +168,7 @@ function copyFonts() {
 // main 758 KB, editor 974 KB, card editor 288 KB on 2026-11-02: "only show while …" for furniture and its texts
 // main 756 KB, editor 970 KB, card editor 286 KB on 2026-11-02: the room bar (a card per room with a light switch, the favourites before them) with its texts
 // main 830 KB, 3D 870 KB, editor 1070 KB on 2026-11-05: duplicate floor, top-hung windows, camera pop-up, lift-and-slide doors
-const BUDGET = { "neonplan3d.js": 830 * 1024, "neonplan3d-fun.js": 40 * 1024, "neonplan3d-voice.js": 60 * 1024, "neonplan3d-locate.js": 160 * 1024, "neonplan3d-timetravel.js": 120 * 1024, "neonplan3d-3d.js": 870 * 1024, "neonplan3d-editor.js": 1070 * 1024, "neonplan3d-card-editor.js": 320 * 1024 };
+const BUDGET = { "neonplan3d.js": 870 * 1024, "neonplan3d-fun.js": 40 * 1024, "neonplan3d-voice.js": 60 * 1024, "neonplan3d-locate.js": 160 * 1024, "neonplan3d-timetravel.js": 120 * 1024, "neonplan3d-3d.js": 870 * 1024, "neonplan3d-editor.js": 1070 * 1024, "neonplan3d-card-editor.js": 324 * 1024 };
 // FORK d14tk: der Editor traegt die eigenen Felder des Forks (angehaengte Etagen, Fensterbank,
 // Rahmenposition, Regenwarnung), seine Bundles brauchen etwas mehr Luft als beim Original (siehe FORK.md).
 

@@ -2301,5 +2301,8 @@
  "camera_popup_open": "Se gjennom kameraet",
  "style_slide": "Skyve (en rute glir foran den faste)",
  "preset_terrace_slide": "Løfte-skyvedør",
- "preset_window_slide": "Skyvevindu"
+ "preset_window_slide": "Skyvevindu",
+ "mount_below_hint": "Under 0 bare utenfor rommene: trinn ned til en nedsenket terrasse eller en lyssjakt.",
+ "fx3d": "Effekter",
+ "fx3d_hint": "Vis vær, sol, kjæledyr og spøkelse også i 3D-ruten til redigeringen (av: en rolig rute å tegne i)"
 }

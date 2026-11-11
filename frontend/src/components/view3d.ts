@@ -32,6 +32,7 @@ import { carState, type CarState, heatSensorOn, roomClimateValue,
   cooktopLevel,
   onlyColor,
   fixedGlowColor,
+  colorCapable,
   fanSpeed,
   apOnline,
   isPulseDrive,
@@ -118,7 +119,7 @@ import { SHOW_PRESENCE } from "../flags.ts";
 import { hasFeature, manualUrl, projectionOn, released, shopUrl, type Feature } from "../features.ts";
 import { searchIndex, searchItems, type SearchItem } from "../search.ts";
 import type { Shown } from "../voice/targets.ts";
-import { anyModule, moduleAlerts, moduleCards, moduleMenuSheets, modulePools, moduleRoomSheets, moduleScene, moduleSettings, modulesWithSettings, moduleVoice, moduleWatched, syncModules, type ModuleCard, type ModuleField, type ModuleHost, type ModuleSheet, type ScenePiece, type SpokenAlert, type SpokenCar, type SpokenDevice, type SpokenOpening, type VoiceAnswer } from "../modules.ts";
+import { anyModule, moduleAlerts, moduleCards, moduleMenuSheets, modulePools, moduleRoomSheets, moduleScene, moduleSettings, modulesWithSettings, moduleVoice, moduleWatched, modulePopups, syncModules, type ModuleCard, type ModuleField, type ModuleHost, type ModuleSheet, type PopupSection, type ScenePiece, type SpokenAlert, type SpokenCar, type SpokenDevice, type SpokenOpening, type VoiceAnswer } from "../modules.ts";
 import { lineFlows, majorOnly, markerEmoji, markerPath, sparkPoints } from "../module-scene.ts";
 import { generateWalls, openingHost, placeWallPlate, pointOnRoomEdge, type Wall } from "../geometry/walls.ts";
 import { signedArea } from "../model.ts";
@@ -134,7 +135,7 @@ import { pathLength, pipePath, pointAlong, type P3 } from "../geometry/runs.ts";
 import { pipePieces, poolAreas, poolNodeAt, poolWallNormal, underBasin, PIPE_IDLE, type PipePiece } from "../pool-runs.ts";
 import type { PipeTube } from "../viewer/viewer3d.ts";
 import type { PoolPiece } from "../viewer/pool-water.ts";
-import { lowSyncDelay } from "../viewer/pace.ts";
+import { lowSyncDelay, MOVE_SYNC_MS } from "../viewer/pace.ts";
 import { floorCounts, floorInfoText, locatedPersons, personLook, personsInRooms, personsShown } from "../presence.ts";
 import { controls, tokens } from "../styles.ts";
 import type { HassEntity, HomeAssistant } from "../types.ts";
@@ -280,6 +281,7 @@ export class Fp3dView3d extends LitElement {
     trail: { type: Boolean },
     cameraWall: { attribute: false },
     weather: { type: Boolean },
+    sunFx: { attribute: false },
     weatherEntityId: { attribute: false },
     _flash: { state: true },
     _proHint: { state: true },
@@ -315,6 +317,8 @@ export class Fp3dView3d extends LitElement {
     ghostOn: { attribute: false },
     _central: { state: true },
     _sheet: { state: true },
+    _popup: { state: true },
+    popupValues: { state: true },
     _settingsOpen: { state: true },
     _note: { state: true },
     _thumbsCompact: { state: true },
@@ -429,6 +433,8 @@ export class Fp3dView3d extends LitElement {
   declare cameraWall: boolean;
   /** Weather outside: rain, snow, fog and clouds from a weather entity, sun and moon from sun.sun. */
   declare weather: boolean;
+  /** Sun, its arc and the house's shadow (the editor's pane switches them off with its effects). */
+  declare sunFx: boolean;
   /** The weather entity to use (null: the first one). */
   declare weatherEntityId: string | null;
   /** A lightning flash lights the stage for a moment. */
@@ -606,13 +612,17 @@ export class Fp3dView3d extends LitElement {
   private declare _central: boolean;
   /** A module's sheet that is open (an announcement …): from a room's panel (with its room) or from the ⭐ menu. */
   private declare _sheet: { id: string; floorId: string | null; roomId: string | null } | null;
+  /** A module's pop-up that is open (its id), with its auto-close timer and the values typed into its form. */
+  private declare _popup: { id: string } | null;
+  private popupTimer: ReturnType<typeof setTimeout> | undefined;
+  private declare popupValues: Record<string, string>;
   /** The ⚙ settings over the view are open. */
   private declare _settingsOpen: boolean;
   /** A short note at the bottom (a module's "sent"), with its timer. */
   private declare _note: string | null;
   private noteTimer: ReturnType<typeof setTimeout> | undefined;
   /** The people shown in the last sync (for the rooms someone is in). */
-  private lastPersons: { floorId: string; roomId: string }[] = [];
+  private lastPersons: { id: string; floorId: string; roomId: string }[] = [];
   /** A house-wide action waiting for its second tap ("sure?"), with the time it was armed. */
   private declare _armed: string | null;
   private armTimer: ReturnType<typeof setTimeout> | undefined;
@@ -726,6 +736,7 @@ export class Fp3dView3d extends LitElement {
     this.furnish = false;
     this.trail = false;
     this.weather = true;
+    this.sunFx = true;
     this.weatherEntityId = null;
     this._flash = false;
     this._proHint = null;
@@ -756,6 +767,8 @@ export class Fp3dView3d extends LitElement {
     this._sheet = null;
     this._settingsOpen = false;
     this._note = null;
+    this._popup = null;
+    this.popupValues = {};
     try {
       this._thumbsCompact = localStorage.getItem("neonplan3d.thumbs_compact") === "1";
     } catch {
@@ -1198,6 +1211,14 @@ export class Fp3dView3d extends LitElement {
     this.seenSeek = this.replay?.seek ?? 0;
     this.seenT = this.replay?.t ?? 0;
     if (!changed) return;
+    // while the view is turned, new states wait until it rests: a sync took whole frames on a slow tablet (#952)
+    if (!force && !this.replay && v.cameraBusy()) {
+      this.sensorTimer ??= setTimeout(() => {
+        this.sensorTimer = undefined;
+        this.syncDevices(false);
+      }, MOVE_SYNC_MS);
+      return;
+    }
     // tablet level: a change of measured values alone is shown at most every 2 s (power sensors tick every second
     // and each sync redoes markers, light, cables and cards); a switch, door or alarm shows at once
     if (sensorsOnly && this._low && !this.replay) {
@@ -1647,16 +1668,16 @@ export class Fp3dView3d extends LitElement {
     const persons = released("locate") && personsShown(b) ? [...roomSensors, ...locatedPersons(hass, b, new Set(roomSensors.map((p) => p.id)))] : roomSensors;
     v.setPersonLook(personLook(b) === "pin" ? "pin" : "figure");
     v.setPersons(persons);
-    this.lastPersons = persons.map((p) => ({ floorId: p.floorId, roomId: p.roomId }));
+    this.lastPersons = persons.map((p) => ({ id: p.id, floorId: p.floorId, roomId: p.roomId }));
     const counts = floorCounts(hass, b, this.openingLinks!, persons);
     v.setFloorInfo(new Map([...counts].map(([id, c]) => [id, floorInfoText(hass, c)])));
     // daylight: sun through the windows and a lighter sky
     const sun = hass.states["sun.sun"]?.attributes;
     const elevation = typeof sun?.elevation === "number" ? sun.elevation : null;
-    v.setSun(elevation !== null && typeof sun?.azimuth === "number" ? { elevation, azimuth: sun.azimuth } : null);
+    v.setSun(this.sunFx !== false && elevation !== null && typeof sun?.azimuth === "number" ? { elevation, azimuth: sun.azimuth } : null);
     // the compass ring's letters: the first letter of each direction in the user's language
     const letter = (k: I18nKey) => translate(hass, k).charAt(0).toUpperCase();
-    v.setSunPath(this.sunPathToday(hass), [letter("compass_n"), letter("compass_e"), letter("compass_s"), letter("compass_w")], hourCycle(hass));
+    v.setSunPath(this.sunFx === false ? null : this.sunPathToday(hass), [letter("compass_n"), letter("compass_e"), letter("compass_s"), letter("compass_w")], hourCycle(hass));
     // the automatic look follows the sun (setTheme ignores a look it already shows)
     if (this.theme === "auto") v.setTheme(this.effectiveTheme());
     // the weather outside: clouds darken the sky, rain, snow and fog fall over the plot
@@ -3077,6 +3098,12 @@ export class Fp3dView3d extends LitElement {
       else if (g.plate) screens.set(g.furnitureId, { color: g.color, level: g.level, faces: [{ part: "plate", color: g.color, level: g.level }] });
       else if (g.band) screens.set(g.furnitureId, { color: g.color, level: g.level, faces: [{ part: "band", color: g.color, level: g.level }] });
     }
+    // a module's picture on an item's screen face (a frame, a display); a tap may open the module's pop-up
+    for (const sp of this.scene) {
+      if (sp.kind !== "screen") continue;
+      screens.set(sp.furnitureId, { color: sp.color ?? [0.06, 0.08, 0.14], level: sp.level ?? 1, picture: sp.picture, plain: true });
+      if (sp.popup) targets.set(sp.furnitureId, `popup:${sp.popup}`);
+    }
     this.watchCameras(this.cameraScreens > 0 || !!this._through || this.cameraWall || this.projecting);
     return { markers, consumers, screens, targets };
   }
@@ -3667,7 +3694,8 @@ export class Fp3dView3d extends LitElement {
       x: f.x,
       z: f.z,
       y,
-      icon: iconSvg("light"),
+      // an own symbol wins over the lamp's (#1005)
+      icon: f.icon ? mdiIcon(f.icon) : iconSvg("light"),
       name: f.name || (entity ? entityName(hass, entity) : furnitureName(hass, f.type)),
       text: st ? stateText(hass, st) : "",
       active: st ? isActive(st) : false,
@@ -3689,8 +3717,15 @@ export class Fp3dView3d extends LitElement {
       pack: item ? f.type : null,
       lightY: item ? (item.mount === "ceiling" ? base : base + f.h * 0.85) : undefined,
       // a running colour effect – not a "mode" some integrations report as their effect (LocalTuya: "white",
-      // "colour"; others "manual", "default", an empty one)
-      effect: !!st && st.state === "on" && typeof st.attributes.effect === "string" && !/^(none|off|solid|static|normal|white|colou?r|rgb|manual|default|-|)$/i.test(st.attributes.effect.trim()),
+      // "colour"; others "manual", "default", an empty one), not a mood of a white-only light, and never while the
+      // lamp has a fixed colour (#977)
+      effect:
+        !!st &&
+        st.state === "on" &&
+        !f.glow_color &&
+        colorCapable(st) &&
+        typeof st.attributes.effect === "string" &&
+        !/^(none|off|solid|static|normal|white|colou?r|rgb|manual|default|-|)$/i.test(st.attributes.effect.trim()),
       variant: f.variant,
       show: f.marker ?? undefined,
       fromFurniture: true,
@@ -3711,6 +3746,8 @@ export class Fp3dView3d extends LitElement {
   }
 
   private showPin(m: DeviceMarker & { fromFurniture?: boolean; energyDevice?: boolean }): boolean {
+    // a lamp without a light is drawn but switches nothing: no pin, whatever the mode (#982)
+    if (m.id.startsWith("lamp:")) return false;
     // while furnishing every placed device has a pin to grab it by
     if (this.furnish && !m.fromFurniture) return true;
     // the device's own setting wins over the marker mode (except "none", which hides every marker)
@@ -4930,6 +4967,7 @@ export class Fp3dView3d extends LitElement {
     const spoken = () => (spokenList ??= this.spokenDevices(hass, b, synonyms).spoken);
     const host: ModuleHost = {
       api: 1,
+      stage: 2,
       hass: () => this.hass,
       building: () => this.building,
       language: () => hass.language || "en",
@@ -4960,6 +4998,16 @@ export class Fp3dView3d extends LitElement {
         const floor = this.building?.floors.find((f) => f.id === floorId);
         return floor ? outdoorGround(floor, x, z) : 0;
       },
+      openPopup: (id, autoCloseMs) => this.openModulePopup(id, autoCloseMs),
+      closePopup: () => this.closeModulePopup(),
+      imageUrl: (id) => this.pictureUrl(id),
+      people: () =>
+        this.lastPersons.flatMap((p) => {
+          const room = this.building?.floors.find((fl) => fl.id === p.floorId)?.rooms.find((r) => r.id === p.roomId);
+          return room ? [{ id: p.id, floorId: p.floorId, roomId: p.roomId, roomName: room.name }] : [];
+        }),
+      look: () => (this.effectiveTheme() === "day" ? "light" : "dark"),
+      lowPower: () => this._low,
       refresh: () => {
         this.requestUpdate();
         // the stage and the cards come from the module: ask it again (once, however often it asks)
@@ -5110,6 +5158,133 @@ export class Fp3dView3d extends LitElement {
     const host = this.sceneHost(hass, b);
     const list = sh.roomId && sh.floorId ? moduleRoomSheets(host, { floorId: sh.floorId, roomId: sh.roomId }) : moduleMenuSheets(host);
     return list.find((x) => x.id === sh.id) ?? null;
+  }
+
+  // ------------------------------------------------------------------ a module's pop-up
+
+  /** Opens a module's pop-up (a tap on a screen piece, or the module itself); it closes by itself after a while. */
+  private openModulePopup(id: string, autoClose = 60_000): void {
+    clearTimeout(this.popupTimer);
+    this._popup = { id };
+    this.popupValues = {};
+    this.popupTimer = setTimeout(() => (this._popup = null), autoClose);
+  }
+
+  private closeModulePopup(): void {
+    clearTimeout(this.popupTimer);
+    this._popup = null;
+    this.popupValues = {};
+  }
+
+  /** The pop-up a module opened, drawn from its sections in the view's own look. */
+  private renderModulePopup() {
+    const hass = this.hass;
+    const b = this.building;
+    const pop = this._popup;
+    if (!hass || !b || !pop) return nothing;
+    const spec = modulePopups(this.sceneHost(hass, b)).find((p) => p.id === pop.id);
+    if (!spec) return nothing;
+    const close = () => this.closeModulePopup();
+    const t = (k: I18nKey) => translate(hass, k);
+    const section = (s: PopupSection) => {
+      switch (s.kind) {
+        case "image": {
+          const stream = s.live && hasFeature("camera_cockpit") && b.settings.director?.live ? this.liveFor(s.live) : null;
+          return stream ? html`<div class="fp3d-pop-big fp3d-pop-live">${stream}</div>` : html`<img class="fp3d-pop-big" src=${s.src} alt="" />`;
+        }
+        case "text":
+          return html`<p class=${s.muted ? "fp3d-sub" : "fp3d-pop-text"}>${s.text}</p>`;
+        case "heading":
+          return html`<h4 class="fp3d-pop-h">${s.text}</h4>`;
+        case "line":
+          return html`<div class="fp3d-pop-line"><span>${s.text}</span>${s.sub ? html`<span>${s.sub}</span>` : nothing}${s.note ? html`<em>${s.note}</em>` : nothing}</div>`;
+        case "groups":
+          return s.groups.length
+            ? html`<div class="fp3d-pop-groups">
+                ${s.groups.map(
+                  (g) => html`<section class=${g.strong ? "fp3d-pop-strong" : ""}>
+                    <h4 role=${g.onToggle ? "button" : nothing} tabindex=${g.onToggle ? 0 : nothing} @click=${() => g.onToggle?.()}>${g.title} ${g.onToggle ? html`<small>${g.open ? "▾" : "▸"}</small>` : nothing}</h4>
+                    ${g.rows.map(
+                      (r) => html`<div class="fp3d-pop-row ${r.leadStrong ? "fp3d-pop-rowlive" : ""}" style=${r.color ? `--cal:${r.color}` : ""}>
+                        <span class="fp3d-pop-lead">${r.lead}</span>
+                        <span class="fp3d-pop-sum">${r.text}${r.sub ? html`<small> · ${r.sub}</small>` : nothing}${g.open && r.detail ? html`<em>${r.detail}</em>` : nothing}</span>
+                      </div>`,
+                    )}
+                  </section>`,
+                )}
+              </div>`
+            : html`<p class="fp3d-sub">${s.empty ?? ""}</p>`;
+        case "checklist":
+          return html`<div class="fp3d-pop-todo">
+            ${s.items.length
+              ? s.items.map(
+                  (it) => html`<label class="fp3d-pop-todoitem ${it.done ? "fp3d-pop-done" : ""}">
+                    <input type="checkbox" .checked=${it.done} ?disabled=${this.ro} @change=${() => void it.onToggle()} />
+                    <span>${it.text}</span>
+                  </label>`,
+                )
+              : html`<p class="fp3d-sub">${s.empty ?? ""}</p>`}
+          </div>`;
+        case "people":
+          return html`<div class="fp3d-pop-people">
+            ${s.items.map(
+              (p) => html`<div class="fp3d-pop-personrow ${p.bright ? "fp3d-pop-bright" : ""}">
+                ${p.picture ? html`<img src=${p.picture} alt="" />` : html`<span class="fp3d-pop-initial">${p.name.slice(0, 1)}</span>`}
+                <div><b>${p.name}</b><span>${p.sub}</span></div>
+              </div>`,
+            )}
+          </div>`;
+        case "tiles":
+          return html`<div class="fp3d-pop-tiles">${s.items.map((d) => html`<div><small>${d.label}</small><span>${d.symbol}</span><b>${d.main}</b>${d.sub ? html`<small>${d.sub}</small>` : nothing}</div>`)}</div>`;
+        case "media":
+          return html`<div class="fp3d-pop-media">
+            ${s.picture ? html`<img class="fp3d-pop-cover" src=${s.picture} alt="" />` : nothing}
+            <div class="fp3d-pop-mediatext">
+              <b>${s.title}</b>
+              ${s.sub ? html`<span>${s.sub}</span>` : nothing}
+              ${s.buttons?.length ? html`<div class="fp3d-pop-ctl">${s.buttons.map((bt) => html`<button class="fp3d-chip" @click=${() => void bt.onTap()}>${bt.label}</button>`)}</div>` : nothing}
+            </div>
+          </div>`;
+        case "form": {
+          if (this.ro) return nothing;
+          if (!s.open) return html`<button class="fp3d-btn fp3d-pop-addbtn" @click=${() => s.onOpen()}>${s.button}</button>`;
+          const value = (f: { id: string; value: string }) => this.popupValues[`${s.id}:${f.id}`] ?? f.value;
+          const setValue = (f: { id: string }, v: string) => (this.popupValues = { ...this.popupValues, [`${s.id}:${f.id}`]: v });
+          return html`<form class="fp3d-pop-form" @submit=${(e: Event) => {
+            e.preventDefault();
+            void s.onSubmit(Object.fromEntries(s.fields.map((f) => [f.id, value(f)])));
+          }}>
+            ${s.fields.map((f) =>
+              f.kind === "select"
+                ? html`<select class="fp3d-pop-in" @change=${(e: Event) => setValue(f, (e.target as HTMLSelectElement).value)}>
+                    ${(f.options ?? []).map((o) => html`<option value=${o.id} ?selected=${o.id === value(f)}>${o.label}</option>`)}
+                  </select>`
+                : html`<input class="fp3d-pop-in" type=${f.kind} placeholder=${f.placeholder ?? ""} .value=${value(f)} @input=${(e: Event) => setValue(f, (e.target as HTMLInputElement).value)} />`,
+            )}
+            <div class="fp3d-pop-ctl"><button class="fp3d-btn fp3d-primary" type="submit">${s.submit}</button><button class="fp3d-btn" type="button" @click=${() => s.onCancel()}>${t("cancel")}</button></div>
+          </form>`;
+        }
+        case "input":
+          return this.ro
+            ? nothing
+            : html`<form class="fp3d-pop-form" @submit=${(e: Event) => {
+                e.preventDefault();
+                const input = (e.target as HTMLFormElement).querySelector("input")!;
+                void s.onSubmit(input.value);
+                input.value = "";
+              }}>
+                <input class="fp3d-pop-in" placeholder=${s.placeholder} />
+                <button class="fp3d-btn fp3d-primary" type="submit">${s.button}</button>
+              </form>`;
+        default:
+          return nothing;
+      }
+    };
+    return html`<div class="fp3d-sheet-backdrop" @click=${close}></div>
+      <div class="fp3d-sheet fp3d-pop ${spec.wide ? "fp3d-pop-wide" : ""}" role="dialog" aria-label=${spec.title}>
+        <header><span>${spec.icon ? `${spec.icon} ` : ""}${spec.title}</span><button class="fp3d-sheet-x" aria-label=${t("close")} @click=${close}>✕</button></header>
+        ${spec.sections.map(section)}
+      </div>`;
   }
 
   private renderSheet() {
@@ -5669,6 +5844,7 @@ export class Fp3dView3d extends LitElement {
     // trail pins and lamps without a light are drawn, but nothing of Home Assistant stands behind them
     if (entityId.startsWith("trail:") || entityId.startsWith("lamp:")) return;
     if (entityId.startsWith("module:")) return this.openModuleCard(entityId.slice(7));
+    if (entityId.startsWith("popup:")) return this.openModulePopup(entityId.slice(6));
     if (entityId.startsWith("opening:")) return this.onOpeningTap(entityId.slice(8), x, y, false);
     // a wall switch or socket: one entity is switched right away, several open the frame's menu
     if (entityId.startsWith("gangs:")) {
@@ -5919,7 +6095,7 @@ export class Fp3dView3d extends LitElement {
       style=${style}
     >
       ${this._error ? html`<p class="fp3d-error">${this._error}</p>` : nothing} ${this.clean ? nothing : this.renderEnergy()} ${this.renderHologram()} ${this.clean ? nothing : this.renderLegend()}
-      ${this.renderClock()} ${this.renderAlerts()} ${this.clean || this._walk ? nothing : html`${this.renderHousehold()} ${this.renderThumbs()} ${this.renderScenes()} ${this.renderFind()} ${this.renderCentral()}`} ${this.clean ? nothing : this.renderWalk()} ${this.renderSwipe()} ${this.renderInfo()} ${this.renderBinInfo()} ${this.renderGangMenu()} ${this.renderThrough()} ${this.renderCamPop()} ${this.renderCameraWall()} ${this.renderSheet()} ${this.renderSettings()} ${this.renderNote()}
+      ${this.renderClock()} ${this.renderAlerts()} ${this.clean || this._walk ? nothing : html`${this.renderHousehold()} ${this.renderThumbs()} ${this.renderScenes()} ${this.renderFind()} ${this.renderCentral()}`} ${this.clean ? nothing : this.renderWalk()} ${this.renderSwipe()} ${this.renderInfo()} ${this.renderBinInfo()} ${this.renderGangMenu()} ${this.renderThrough()} ${this.renderCamPop()} ${this.renderCameraWall()} ${this.renderSheet()} ${this.renderModulePopup()} ${this.renderSettings()} ${this.renderNote()}
       ${this.clean ? nothing : this.renderProHint()} ${this.renderMenu()} ${this.renderEye()}
       ${this.renderMic()}
       ${this._announce ? html`<div class="fp3d-announce" role="status" @click=${() => (this._announce = null)}>📢 ${this._announce}</div>` : nothing}
@@ -7094,6 +7270,239 @@ export class Fp3dView3d extends LitElement {
         inset: 0;
         z-index: 7;
         background: rgba(4, 8, 16, 0.35);
+      }
+      .fp3d-pop {
+        width: min(560px, calc(100% - 24px));
+      }
+      .fp3d-pop.fp3d-pop-wide {
+        width: min(960px, calc(100% - 24px));
+      }
+      .fp3d-pop-big {
+        display: block;
+        width: 100%;
+        max-height: calc(100vh - 160px);
+        object-fit: contain;
+        border-radius: 12px;
+        background: #000;
+      }
+      .fp3d-pop-groups {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .fp3d-pop-groups h4 {
+        margin: 0 0 6px;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--fp3d-muted, #8fa0c0);
+      }
+      .fp3d-pop-strong h4 {
+        color: var(--fp3d-accent, #37e0ff);
+      }
+      .fp3d-pop-row {
+        display: grid;
+        grid-template-columns: 96px 1fr;
+        gap: 10px;
+        align-items: baseline;
+        padding: 6px 0 6px 12px;
+        border-left: 3px solid var(--cal, #37e0ff);
+        margin-bottom: 4px;
+      }
+      .fp3d-pop-lead {
+        font-variant-numeric: tabular-nums;
+        color: var(--fp3d-muted, #8fa0c0);
+        font-size: 13px;
+      }
+      .fp3d-pop-sum {
+        font-size: 15px;
+      }
+      .fp3d-pop-sum small {
+        color: var(--fp3d-muted, #8fa0c0);
+      }
+      .fp3d-pop-media,
+      .fp3d-pop-person {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+      }
+      .fp3d-pop-cover {
+        width: 160px;
+        height: 160px;
+        object-fit: cover;
+        border-radius: 12px;
+        background: #000;
+        flex: none;
+      }
+      .fp3d-pop-sym {
+        font-size: 72px;
+        line-height: 1;
+        flex: none;
+      }
+      .fp3d-pop-mediatext {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+      }
+      .fp3d-pop-mediatext b {
+        font-size: 18px;
+      }
+      .fp3d-pop-mediatext span {
+        color: var(--fp3d-muted, #8fa0c0);
+      }
+      .fp3d-pop-ctl {
+        display: flex;
+        gap: 8px;
+        margin-top: 6px;
+      }
+      .fp3d-pop-rowlive .fp3d-pop-lead {
+        color: var(--fp3d-accent, #37e0ff);
+        font-weight: 700;
+      }
+      .fp3d-pop-groups h4 {
+        cursor: pointer;
+      }
+      .fp3d-pop-sum em {
+        display: block;
+        font-style: normal;
+        font-size: 13px;
+        color: var(--fp3d-muted, #8fa0c0);
+        margin-top: 2px;
+      }
+      .fp3d-pop-form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-top: 6px;
+      }
+      .fp3d-pop-in {
+        flex: 1 1 140px;
+        min-width: 0;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--fp3d-line);
+        background: rgba(255, 255, 255, 0.06);
+        color: inherit;
+        font: inherit;
+      }
+      .fp3d-pop-addbtn {
+        align-self: flex-start;
+        margin-top: 4px;
+      }
+      .fp3d-pop-todo {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .fp3d-pop-todoitem {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 8px 6px;
+        border-radius: 10px;
+        font-size: 16px;
+        cursor: pointer;
+      }
+      .fp3d-pop-todoitem:hover {
+        background: rgba(255, 255, 255, 0.05);
+      }
+      .fp3d-pop-todoitem input {
+        width: 22px;
+        height: 22px;
+        accent-color: var(--fp3d-accent, #37e0ff);
+      }
+      .fp3d-pop-done span {
+        text-decoration: line-through;
+        color: var(--fp3d-muted, #8fa0c0);
+      }
+      .fp3d-pop-people {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .fp3d-pop-personrow {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        opacity: 0.6;
+      }
+      .fp3d-pop-personrow.fp3d-pop-bright {
+        opacity: 1;
+      }
+      .fp3d-pop-personrow img,
+      .fp3d-pop-initial {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        object-fit: cover;
+        background: rgba(255, 255, 255, 0.1);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        flex: none;
+      }
+      .fp3d-pop-personrow div {
+        display: flex;
+        flex-direction: column;
+      }
+      .fp3d-pop-personrow span {
+        color: var(--fp3d-muted, #8fa0c0);
+        font-size: 13px;
+      }
+      .fp3d-pop-h {
+        margin: 10px 0 4px;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--fp3d-muted, #8fa0c0);
+      }
+      .fp3d-pop-line {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 12px;
+        align-items: baseline;
+        font-size: 18px;
+      }
+      .fp3d-pop-line span + span {
+        color: var(--fp3d-muted, #8fa0c0);
+        font-size: 14px;
+      }
+      .fp3d-pop-line em,
+      .fp3d-pop-mediatext em {
+        font-style: normal;
+        color: var(--fp3d-accent, #37e0ff);
+        font-size: 14px;
+      }
+      .fp3d-pop-waste {
+        margin: 0;
+      }
+      .fp3d-pop-tiles {
+        display: flex;
+        gap: 10px;
+        margin-top: 12px;
+      }
+      .fp3d-pop-tiles div {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        padding: 8px 4px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.05);
+      }
+      .fp3d-pop-tiles span {
+        font-size: 26px;
+      }
+      .fp3d-pop-tiles small {
+        color: var(--fp3d-muted, #8fa0c0);
+      }
+      .fp3d-pop-live {
+        aspect-ratio: 16 / 9;
+        overflow: hidden;
       }
       .fp3d-sheet {
         position: absolute;

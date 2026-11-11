@@ -234,6 +234,8 @@ _VEHICLE_TYPE_SCHEMA = vol.Schema(
 
 # the kinds of waste a bin can take (household.ts WASTE_KINDS)
 WASTE_KINDS = ["rest", "bio", "paper", "plastic", "glass", "garden", "recycling", "other"]
+# digital picture frames: what a frame's face shows
+FRAME_KINDS = ["calendar", "camera", "media", "person", "photo", "weather", "todo", "board", "persons"]
 
 FURNITURE_SCHEMA = vol.Schema(
     {
@@ -290,7 +292,8 @@ FURNITURE_SCHEMA = vol.Schema(
         # parking spots: the vehicle shown (a pack item type) while the entity reports a car, its size
         # factor, and a sensor naming the kind of vehicle with a state -> vehicle mapping
         # height of the bottom edge above the floor (None = default: the floor, a pack item's mount)
-        vol.Optional("mount_y", default=None): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0, max=10))),
+        # below 0 only outside the rooms (outdoor steps down to a sunken terrace, #897); the editor keeps rooms at 0
+        vol.Optional("mount_y", default=None): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=-5, max=10))),
         # any furniture: an entity whose state the item shows (glows while on / occupied / home), optionally
         # two of them for the halves of a bed (left/right) or a bunk bed (bottom/top)
         vol.Optional("state_entity", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
@@ -317,6 +320,12 @@ FURNITURE_SCHEMA = vol.Schema(
         vol.Optional("bin_source"): vol.Any(None, vol.All(str, vol.Length(max=255))),
         vol.Optional("bin_match"): vol.Any(None, vol.All(str, vol.Length(max=120))),
         vol.Optional("mailbox_door"): vol.Any(None, vol.All(str, vol.Length(max=255))),
+        # digital picture frames: what the face shows and where it comes from (entities, or a URL for a photo)
+        vol.Optional("frame_kind"): vol.Any(None, vol.In(FRAME_KINDS)),
+        vol.Optional("frame_source"): vol.Any(None, vol.All(str, vol.Length(max=4000))),
+        vol.Optional("frame_trigger"): vol.Any(None, vol.All(str, vol.Length(max=255))),
+        vol.Optional("frame_remind"): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0, max=1440))),
+        vol.Optional("frame_interval"): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=3, max=3600))),
         # Haushalt Pro: on while the bin is out (an input_boolean a nightly automation resets)
         vol.Optional("bin_out"): vol.Any(None, vol.All(str, vol.Length(max=255))),
         # Haushalt Pro: a plant's moisture, an appliance's time left, a service, a fridge's door alarm

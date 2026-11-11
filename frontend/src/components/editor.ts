@@ -171,6 +171,8 @@ type FixKind = "room" | "opening" | "furniture" | "device" | "wall" | "outdoor";
 
 /** Highest mount height the backend accepts (schema: 0–10 m); "40" meant as centimetres would refuse every save. */
 const MAX_MOUNT_Y = 10;
+/** How far below the floor a piece outside the rooms may stand: steps down to a sunken terrace (#897). */
+const MIN_MOUNT_Y_OUT = -5;
 
 type Tool = "select" | "rect" | "polygon" | "measure" | "opening" | "furniture" | "outdoor" | "hole" | "wall" | "roof" | "energy" | "pool";
 
@@ -387,6 +389,7 @@ export class Fp3dEditor extends LitElement {
     _backupBusy: { state: true },
     _supporter: { state: true },
     _wall3d: { state: true },
+    _fx3d: { state: true },
     _sidePinned: { state: true },
     _sideMin: { state: true },
     _sideOpen: { state: true },
@@ -501,6 +504,8 @@ export class Fp3dEditor extends LitElement {
   private supporterChecked = false;
   /** Walls in the 3D pane: full height ("auto") or cut at the cut height (shows wall units and shelves). */
   private declare _wall3d: WallMode;
+  /** Weather, sun, pets and ghost in the 3D pane beside the plan (off: a quiet pane for drawing, #1033). */
+  private declare _fx3d: boolean;
   /** Sidebar beside the 3D pane: pinned open always, or folded to a strip while nothing is selected. */
   private declare _sidePinned: boolean;
   /** The sidebar folded to a narrow strip beside the plan (more room to move furniture); remembered per browser. */
@@ -816,6 +821,7 @@ export class Fp3dEditor extends LitElement {
     this._wall3d = "cut";
     try {
       if (localStorage.getItem("neonplan3d.walls3d") === "auto") this._wall3d = "auto";
+      this._fx3d = localStorage.getItem("neonplan3d.editor_fx") !== "0";
     } catch {
       // no storage: the default
     }
@@ -1056,11 +1062,11 @@ export class Fp3dEditor extends LitElement {
                 type=${this.unit === "imperial" ? "text" : "number"}
                 inputmode="decimal"
                 step="0.05"
-                min="0"
+                min=${this.minMountY(f)}
                 .value=${this.unit === "imperial" ? formatImperial(f.mount_y ?? mountBase(this.floor!, f)) : String(Math.round((f.mount_y ?? mountBase(this.floor!, f)) * 100) / 100)}
                 @change=${(e: Event) => {
                   const v = this.readLen((e.target as HTMLInputElement).value);
-                  if (v !== null && v >= 0) this.updateFurniture({ mount_y: Math.round(Math.min(MAX_MOUNT_Y, v) * 1000) / 1000 });
+                  if (v !== null && v >= this.minMountY(f)) this.updateFurniture({ mount_y: Math.round(Math.min(MAX_MOUNT_Y, v) * 1000) / 1000 });
                 }}
               />
             </label>`
@@ -1180,6 +1186,15 @@ export class Fp3dEditor extends LitElement {
     return this._tool === "roof" || this._tool === "energy";
   }
 
+  private setFx3d(on: boolean): void {
+    this._fx3d = on;
+    try {
+      localStorage.setItem("neonplan3d.editor_fx", on ? "1" : "0");
+    } catch {
+      /* no storage */
+    }
+  }
+
   private render3d() {
     return html`<div class="fp3d-editor-3d">
       ${this.houseTool
@@ -1187,6 +1202,7 @@ export class Fp3dEditor extends LitElement {
         : html`<div class="fp3d-seg fp3d-3d-walls">
             <button aria-pressed=${this._wall3d === "auto"} @click=${() => this.setWall3d("auto")}>${this.t("walls_auto")}</button>
             <button aria-pressed=${this._wall3d === "cut"} @click=${() => this.setWall3d("cut")}>${this.t("walls_cut")}</button>
+            <button class="fp3d-fx3d" aria-pressed=${this._fx3d} title=${this.t("fx3d_hint")} @click=${() => this.setFx3d(!this._fx3d)}>${this.t("fx3d")}</button>
           </div>`}
       ${this.render3dBar()}
       <fp3d-view3d
@@ -1198,6 +1214,10 @@ export class Fp3dEditor extends LitElement {
         .roomId=${null}
         .wallMode=${this.houseTool ? "auto" : this._wall3d}
         .explode=${false}
+        .weather=${this._fx3d}
+        .petsOn=${this._fx3d}
+        .ghostOn=${this._fx3d}
+        .sunFx=${this._fx3d}
         .keepRoof=${this._tool === "roof" || this._tool === "energy"}
         .markerMode=${"important"}
         .heatMode=${"none"}
@@ -2919,6 +2939,41 @@ export class Fp3dEditor extends LitElement {
   private updateOutdoor(patch: Partial<OutdoorArea>): void {
     const id = this._outdoorId;
     this.change((_, floor) => patchItem(floor.outdoor.find((o) => o.id === id), patch));
+  }
+
+  /** An outdoor area's corners to type in, like a room's (#1041): free shapes get straight and parallel edges. */
+  private renderOutdoorPoints(a: OutdoorArea, rect: boolean) {
+    const admin = this.isAdmin;
+    // an open run (a fence, an open pergola) may keep two points, a surface needs three
+    const min = a.open ? 2 : 3;
+    const setPoint = (i: number, axis: 0 | 1, v: number) => {
+      if (!Number.isFinite(v)) return;
+      const points = a.points.map((p) => [...p] as Vec2);
+      points[i][axis] = round(v);
+      this.updateOutdoor({ points });
+    };
+    const dropPoint = (i: number) => {
+      if (a.points.length <= min) return;
+      const n = a.points.length;
+      const prev = (i - 1 + n) % n;
+      // the two edges at the removed corner merge: their gates lose their place, later edges move up by one
+      const gates = a.gates?.filter((g) => g.edge !== i && g.edge !== prev).map((g) => ({ ...g, edge: g.edge > i ? g.edge - 1 : g.edge }));
+      this.updateOutdoor({ points: a.points.filter((_, k) => k !== i).map((p) => [...p] as Vec2), ...(a.gates ? { gates: gates?.length ? gates : undefined } : {}) });
+    };
+    // a round or oval pool is made from its box: its corners are not edited one by one
+    if (a.pool_shape) return nothing;
+    return html`<details class="fp3d-points" ?open=${!rect}>
+      <summary>${this.t("points")} (${a.points.length})</summary>
+      ${a.points.map(
+        (p, i) => html`<div class="fp3d-point">
+          <span class="fp3d-muted">${i + 1}</span>
+          ${this.len(this.t("x"), p[0], (v) => setPoint(i, 0, v))} ${this.len(this.t("z"), p[1], (v) => setPoint(i, 1, v))}
+          ${admin
+            ? html`<button class="fp3d-btn" title=${this.t("delete_point")} ?disabled=${a.points.length <= min} @click=${() => dropPoint(i)}>×</button>`
+            : nothing}
+        </div>`,
+      )}
+    </details>`;
   }
 
   private deleteOutdoor(): void {
@@ -6730,6 +6785,7 @@ export class Fp3dEditor extends LitElement {
       </div>
       ${a.slope ? html`<p class="fp3d-sub">${this.t("outdoor_slope_hint")}</p>` : nothing}
       <p class="fp3d-sub">${this.t("outdoor_hint")}</p>
+      ${this.renderOutdoorPoints(a, rect)}
       ${this.renderModuleFields(a)}
       ${admin
         ? html`<div class="fp3d-actions">
@@ -6789,7 +6845,7 @@ export class Fp3dEditor extends LitElement {
         for (const m of floor.furniture) {
           if (!set.has(m.id)) continue;
           Object.assign(m, slideAlong(frame, m, ds));
-          if (dy !== null && canLift(m)) m.mount_y = Math.round(Math.min(MAX_MOUNT_Y, Math.max(0, mountBase(floor, m) + dy)) * 1000) / 1000;
+          if (dy !== null && canLift(m)) m.mount_y = Math.round(Math.min(MAX_MOUNT_Y, Math.max(this.minMountY(m, floor), mountBase(floor, m) + dy)) * 1000) / 1000;
         }
       },
       base,
@@ -7087,7 +7143,7 @@ export class Fp3dEditor extends LitElement {
         const m = floor.furniture.find((x) => x.id === id);
         if (!m) return;
         Object.assign(m, slideAlong(frame, m, ds));
-        if (y0 !== null) m.mount_y = Math.round(Math.min(MAX_MOUNT_Y, Math.max(0, y0)) * 1000) / 1000;
+        if (y0 !== null) m.mount_y = Math.round(Math.min(MAX_MOUNT_Y, Math.max(this.minMountY(m, floor), y0)) * 1000) / 1000;
       },
       base,
       history,
@@ -7124,7 +7180,7 @@ export class Fp3dEditor extends LitElement {
           const nt = y1 ?? bottom + m.h;
           if (nt - nb < 0.03) return;
           m.h = round(nt - nb);
-          if (y0 !== null && canLift(m)) m.mount_y = round(Math.max(0, nb));
+          if (y0 !== null && canLift(m)) m.mount_y = round(Math.max(this.minMountY(m, floor), nb));
         }
       },
       base,
@@ -10042,6 +10098,7 @@ export class Fp3dEditor extends LitElement {
     const hass = this.hass!;
     return {
       api: 1,
+      stage: 2,
       hass: () => hass,
       building: () => this._doc,
       language: () => hass.language || "en",
@@ -10118,10 +10175,46 @@ export class Fp3dEditor extends LitElement {
           >`;
         case "check":
           return html`<label class="fp3d-check fp3d-wide"><input type="checkbox" .checked=${f.value} ?disabled=${!admin} @change=${(e: Event) => f.set((e.target as HTMLInputElement).checked)} /> ${f.label}</label>`;
+        case "number":
+          // a plain number next to the entity pickers (a fixed flow rate, #987); cleared = none
+          return html`<label class="fp3d-field fp3d-wide"
+              >${f.label}
+              <input
+                type="number"
+                inputmode="decimal"
+                step=${f.step ?? 1}
+                min=${f.min ?? nothing}
+                max=${f.max ?? nothing}
+                placeholder=${f.placeholder ?? ""}
+                .value=${f.value === null ? "" : String(f.value)}
+                ?disabled=${!admin}
+                @change=${(e: Event) => {
+                  const raw = (e.target as HTMLInputElement).value.trim().replace(",", ".");
+                  const v = raw === "" ? null : Number(raw);
+                  if (v === null || Number.isFinite(v)) f.set(v);
+                }}
+              /></label>
+            ${f.hint ? html`<p class="fp3d-sub fp3d-wide">${f.hint}</p>` : nothing}`;
         case "button":
           return html`<button class="fp3d-btn ${f.primary ? "fp3d-primary" : ""} fp3d-wide" ?disabled=${!admin} title=${f.title ?? ""} @click=${() => f.onTap()}>${f.label}</button>`;
         case "lines":
           return linesField(f.value, !admin, { label: f.label, placeholder: f.placeholder ?? this.t("lines_new"), add: this.t("lines_add"), remove: this.t("delete") }, (v) => f.set(v), true);
+        case "images":
+          for (const id of f.value) this.wantImage(id);
+          return html`<div class="fp3d-field fp3d-wide">
+            <span>${f.label}</span>
+            ${f.value.length
+              ? html`<div class="fp3d-thumbs">
+                  ${f.value.map(
+                    (id) => html`<span class="fp3d-thumbwrap"
+                      >${this._images[id] ? html`<img class="fp3d-thumb" src=${this._images[id].url} alt="" />` : html`<span class="fp3d-thumb fp3d-thumb-empty"></span>`}
+                      ${admin ? html`<button class="fp3d-chip" title=${this.t("delete")} @click=${() => f.set(f.value.filter((x) => x !== id))}>✕</button>` : nothing}</span
+                    >`,
+                  )}
+                </div>`
+              : nothing}
+            ${admin ? html`<label class="fp3d-btn fp3d-upload">${f.add}<input type="file" accept="image/*" multiple hidden @change=${(e: Event) => void this.uploadImages(e, (ids) => f.set([...f.value, ...ids]))} /></label>` : nothing}
+          </div>`;
       }
     };
     if (!wrap) return fields.map(field);
@@ -10546,6 +10639,14 @@ export class Fp3dEditor extends LitElement {
   }
 
   /** A length field: a number field in metres, a text field in feet and inches (8' 2", 98in, 2.5m all work). */
+  /**
+   * The lowest height a piece may be set to: 0 in a room; outside the rooms it may go below the floor level – outdoor
+   * steps down to a sunken terrace or a light well (#897).
+   */
+  private minMountY(f: Pick<Furniture, "x" | "z">, floor: Floor | null | undefined = this.floor): number {
+    return floor && !floor.rooms.some((r) => r.points.length >= 3 && pointInPolygon([f.x, f.z], r.points)) ? MIN_MOUNT_Y_OUT : 0;
+  }
+
   private len(label: string, value: number, onChange: (v: number) => void, step = 0.01, min?: number) {
     if (this.unit !== "imperial") return this.num(label, value, onChange, step, min);
     return html`<label class="fp3d-field"
@@ -11058,7 +11159,7 @@ export class Fp3dEditor extends LitElement {
       >
       ${this.num(this.t("spots_cols"), f.cols, (v) => set({ cols: Math.max(1, Math.min(12, Math.round(v))) }), 1, 1)}
       ${this.num(this.t("spots_rows"), f.rows, (v) => set({ rows: Math.max(1, Math.min(12, Math.round(v))) }), 1, 1)}
-      ${this.entitySelect(this.t("furn_entity_light"), f.entity, undefined, lights, (v) => set({ entity: v === "none" ? null : v }))}
+      ${this.entitySelect(this.t("furn_entity_light"), f.entity, undefined, lights, (v) => set({ entity: v }))}
       <div class="fp3d-actions fp3d-wide">
         <button class="fp3d-btn fp3d-primary" ?disabled=${!count} @click=${() => this.placeSpots(room)}>${this.t("spots_add", { n: count })}</button>
         <button class="fp3d-btn" @click=${() => (this._spots = null)}>${this.t("cancel")}</button>
@@ -11532,7 +11633,8 @@ export class Fp3dEditor extends LitElement {
               >`
           : nothing}
         ${canLift(f) && this.floor
-          ? html`${this.len(this.t("mount_height"), f.mount_y ?? mountBase(this.floor, f), (v) => this.updateFurniture({ mount_y: Math.min(MAX_MOUNT_Y, Math.max(0, v)) }), 0.01, 0)}
+          ? html`${this.len(this.t("mount_height"), f.mount_y ?? mountBase(this.floor, f), (v) => this.updateFurniture({ mount_y: Math.min(MAX_MOUNT_Y, Math.max(this.minMountY(f), v)) }), 0.01, this.minMountY(f))}
+              ${this.minMountY(f) < 0 && (f.mount_y ?? 0) < 0 ? html`<p class="fp3d-sub fp3d-wide">${this.t("mount_below_hint")}</p>` : nothing}
               ${f.mount_y != null ? html`<button class="fp3d-btn fp3d-field-btn" ?disabled=${!admin} @click=${() => this.updateFurniture({ mount_y: null })}>${this.t("height_auto")}</button>` : nothing}`
           : nothing}
       </div>
@@ -12265,6 +12367,43 @@ export class Fp3dEditor extends LitElement {
    * Haushalt Pro on other items: a plant's moisture, a washer's time left and door, a fridge's door warning, and a
    * consumable or service for every electric item. A teaser on plants, appliances and fridges while it is locked.
    */
+  /** A stored picture's URL for a thumbnail, fetched once. */
+  private wantImage(id: string): void {
+    if (this._images[id] || this.wantedImages.has(id) || !this.hass) return;
+    this.wantedImages.add(id);
+    fetchImage(this.hass, id).then(
+      (url) => (this._images = { ...this._images, [id]: { url, aspect: 1 } }),
+      () => undefined,
+    );
+  }
+
+  private wantedImages = new Set<string>();
+
+  /** Stores pictures a field uploads (several at once), scaled down to what a face in 3D needs. */
+  private async uploadImages(e: Event, done: (ids: string[]) => void): Promise<void> {
+    const input = e.target as HTMLInputElement;
+    const files = [...(input.files ?? [])];
+    input.value = "";
+    if (!files.length) return;
+    const ids: string[] = [];
+    const images = { ...this._images };
+    for (const file of files.slice(0, 20)) {
+      const bitmap = await createImageBitmap(file);
+      const k = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(bitmap.width * k);
+      canvas.height = Math.round(bitmap.height * k);
+      canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const data = canvas.toDataURL(file.type === "image/png" ? "image/png" : "image/jpeg", 0.85);
+      const imageId = uid("pic");
+      await storeImage(this.hass, imageId, data);
+      images[imageId] = { url: data, aspect: canvas.height / canvas.width };
+      ids.push(imageId);
+    }
+    this._images = images;
+    done(ids);
+  }
+
   private renderHouseholdExtras(f: Furniture) {
     const plant = f.type === "plant" || isPackPlant(f.type);
     const appliance = !!applianceOf(f.type);
@@ -16890,6 +17029,32 @@ export class Fp3dEditor extends LitElement {
       .fp3d-point .fp3d-btn {
         min-height: 34px;
         padding: 4px 10px;
+      }
+      .fp3d-thumbs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .fp3d-thumbwrap {
+        position: relative;
+        display: inline-block;
+      }
+      .fp3d-thumbwrap .fp3d-chip {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+      }
+      .fp3d-thumb-empty {
+        display: inline-block;
+        width: 80px;
+        height: 60px;
+        background: rgba(255, 255, 255, 0.08);
+      }
+      .fp3d-thumb {
+        max-width: 160px;
+        max-height: 110px;
+        border-radius: 8px;
+        margin: 4px 0;
       }
       .fp3d-upload {
         position: relative;

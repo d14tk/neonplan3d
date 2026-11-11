@@ -8,7 +8,7 @@
 import { AdditiveBlending, CustomBlending, OneFactor, SrcAlphaFactor, ZeroFactor, RingGeometry, Fog, CircleGeometry, Box3, CanvasTexture, ClampToEdgeWrapping, Color, BackSide, DoubleSide, FrontSide, Group, LineBasicMaterial, LineSegments, Mesh, MeshBasicMaterial, MultiplyBlending, OrthographicCamera, PerspectiveCamera, Points, PointsMaterial, PlaneGeometry, Raycaster, RepeatWrapping, Scene, SRGBColorSpace, TextureLoader, type Texture, Float32BufferAttribute, Uint32BufferAttribute, DynamicDrawUsage, BufferGeometry as Geometry, Vector2, Vector3, WebGLRenderer, WebGLRenderTarget, type Material, BufferGeometry } from "three";
 import type { Building, Floor, Furniture, Room, StartView } from "../model.ts";
 import { recolorLamps, SHADE_SENTINEL, shadeFactors } from "./lamp-colors.ts";
-import { centroid, floorAttach, floorLevels, GANG_TYPES, gateSpans, outdoorSurface, outdoorZones, pointInPolygon, openingStyle, setTerrain, WALL_LAMP_Y, zonesOf } from "../model.ts";
+import { centroid, floorAttach, floorLevels, GANG_TYPES, gateSpans, outdoorSurface, outdoorTopAt, outdoorZones, pointInPolygon, openingStyle, setTerrain, WALL_LAMP_Y, zonesOf } from "../model.ts";
 import { placeWallPlate } from "../geometry/walls.ts";
 import { buildEarth } from "./earth.ts";
 import { clampIntoRoom } from "../geometry/snap.ts";
@@ -17,7 +17,7 @@ import { buildFloorGeometry, SLAB, stairHoleParts, type FloorGeometry } from "./
 import { OrbitControls, type OrbitView } from "./controls.ts";
 import { makeFoldable, type FoldMasks } from "./fold.ts";
 import { CameraProjections, PROJECTION_LAYER, type ProjectionSurface, type ProjectorPose } from "./projection.ts";
-import { packGlowCentre, pushAwning, pushCameraModel, pushPackGlow, pushPackRobot, pushPackLamp, pushPackMotion, screenRect, screenPictureSize, pushFridgeDoors, setLightLook, hasFixedColors } from "./furniture.ts";
+import { packGlowCentre, packGlowCentres, pushAwning, pushCameraModel, pushPackGlow, pushPackRobot, pushPackLamp, pushPackMotion, screenRect, screenPictureSize, pushFridgeDoors, setLightLook, hasFixedColors } from "./furniture.ts";
 import { pushPipeTube, type PipeTube } from "./pipes.ts";
 import { pushGate } from "./outdoor.ts";
 import { pinKey } from "./pin-key.ts";
@@ -44,7 +44,7 @@ import { accentOnUniform, accentUniform, parseAccent, lineBlending, themed, them
 
 export type { Theme } from "./theme.ts";
 import { ALWAYS, DEG, GeoBuffer, LineBuffer, pushPrism, triangulate } from "./geo.ts";
-import { buildLightSurface, lightColors, roomIndexAt, spillLength, type LightKind, type LightSource, type LightSurface, zoneOf } from "./lighting.ts";
+import { buildLightSurface, lightColors, roomIndexAt, shadowed, spillLength, windowCast, type LightKind, type LightSource, type LightSurface, zoneOf } from "./lighting.ts";
 import { buildOpeningParts, CLOSED, type OpeningState } from "./openings.ts";
 import { circlePath, cleaningPath, stepRobot, type RobotInfo, type RobotMotion } from "./robot.ts";
 import { decorDelay, lowEndDevice, petDelay, SLOW_KEY, SLOW_SAMPLES, SLOW_WARMUP_MS, slowFrames } from "./pace.ts";
@@ -228,6 +228,8 @@ export interface PatchPiece {
   opacity: number;
   /** Adds light instead of tinting (a heated floor glowing warm). */
   glow?: boolean;
+  /** Lies on this outdoor area's surface, `lift` metres above it, following its slope (snow on a sloping lawn, #1036). */
+  follow?: { areaId: string; lift: number };
 }
 
 /** A lit TV or monitor screen: colour of the running app and brightness (0..1). */
@@ -735,6 +737,8 @@ export class FloorplanViewer {
   /** Rain streaks and snow flakes over the plot, the sun or moon disc in the sky. */
   private rain = new LineSegments(new Geometry(), new LineBasicMaterial({ color: 0x9fc8ff, transparent: true, opacity: 0.4, blending: AdditiveBlending, depthWrite: false }));
   private snow = new Points(new Geometry(), new PointsMaterial({ color: 0xf4f8ff, size: 0.14, transparent: true, opacity: 0.85, depthWrite: false }));
+  /** Fog: soft swathes of ground mist drifting around the house (the fog behind it alone is hard to see, #990). */
+  private mist = new Points(new Geometry(), new PointsMaterial({ color: 0xdde4f0, size: 13, transparent: true, opacity: 0.2, depthWrite: false, fog: false }));
   private skyDisc = new Mesh(new CircleGeometry(1, 28), new MeshBasicMaterial({ color: 0xffd98a, transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false }));
   private weatherBox = { x0: -10, x1: 10, z0: -10, z1: 10, y0: 0, y1: 8 };
   private weatherTimer: ReturnType<typeof setTimeout> | undefined;
@@ -786,11 +790,14 @@ export class FloorplanViewer {
     this.scene.add(this.ground, this.root);
     this.rain.frustumCulled = false;
     this.snow.frustumCulled = false;
+    this.mist.frustumCulled = false;
     this.rain.visible = false;
     this.snow.visible = false;
+    this.mist.visible = false;
+    (this.mist.material as PointsMaterial).map = this.haloTexture;
     this.skyDisc.visible = false;
     this.skyDisc.renderOrder = -1;
-    this.scene.add(this.rain, this.snow, this.skyDisc, this.sunFx.group);
+    this.scene.add(this.rain, this.snow, this.mist, this.skyDisc, this.sunFx.group);
     this.controls = this.makeControls();
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
@@ -1294,9 +1301,11 @@ export class FloorplanViewer {
       for (const t of mine) {
         if (!!t.glow !== glow) continue;
         const a = Math.min(1, t.opacity);
+        const area = t.follow ? (fv.floor.outdoor ?? []).find((o) => o.id === t.follow!.areaId) : undefined;
         for (const tri of triangulate(t.points)) {
           for (const i of tri) {
-            p.push(t.points[i][0], t.y, t.points[i][1]);
+            const [px, pz] = t.points[i];
+            p.push(px, area ? outdoorTopAt(fv.floor, area, px, pz) + t.follow!.lift : t.y, pz);
             c.push(t.color[0], t.color[1], t.color[2], a);
           }
         }
@@ -1558,10 +1567,37 @@ export class FloorplanViewer {
     this.placeFog();
     const rainCount = on ? Math.round(700 * w.rain) : 0;
     const snowCount = on ? Math.round(450 * w.snow) : 0;
+    const mistCount = on && w.fog > 0 ? Math.round(18 + 30 * w.fog) : 0;
     this.seedParticles(this.rain, rainCount * 2, true);
     this.seedParticles(this.snow, snowCount, false);
+    this.seedMist(mistCount);
     this.rain.visible = rainCount > 0;
     this.snow.visible = snowCount > 0;
+    this.mist.visible = mistCount > 0;
+  }
+
+  /** Swathes of mist around the house, low over the ground, none inside the house (#990). */
+  private seedMist(count: number): void {
+    const current = this.mist.geometry.getAttribute("position") as Float32BufferAttribute | undefined;
+    if ((current?.count ?? 0) === count) return;
+    const b = this.weatherBox;
+    // the weather box has a 6 m margin around the house: the mist lies in that margin and a little beyond it
+    const [hx0, hx1, hz0, hz1] = [b.x0 + 6, b.x1 - 6, b.z0 + 6, b.z1 - 6];
+    const p = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      let x = 0;
+      let z = 0;
+      for (let tries = 0; tries < 12; tries++) {
+        x = b.x0 - 3 + Math.random() * (b.x1 - b.x0 + 6);
+        z = b.z0 - 3 + Math.random() * (b.z1 - b.z0 + 6);
+        if (x < hx0 - 1 || x > hx1 + 1 || z < hz0 - 1 || z > hz1 + 1) break;
+      }
+      p.set([x, b.y0 + 0.4 + Math.random() * 1.6, z], i * 3);
+    }
+    this.mist.geometry.dispose();
+    const g = new Geometry();
+    g.setAttribute("position", new Float32BufferAttribute(p, 3));
+    this.mist.geometry = g;
   }
 
   /** Moves the fog's start behind the house for the current camera (cheap: two numbers per frame). */
@@ -1599,7 +1635,7 @@ export class FloorplanViewer {
   /** Lets rain fall and snow drift; true while something moved. */
   private stepWeather(now: number): boolean {
     const w = this.weather;
-    if (!w || (!this.rain.visible && !this.snow.visible)) {
+    if (!w || (!this.rain.visible && !this.snow.visible && !this.mist.visible)) {
       this.weatherLast = 0;
       return false;
     }
@@ -1643,6 +1679,21 @@ export class FloorplanViewer {
         if (x > b.x1) x -= b.x1 - b.x0;
         p[i] = x;
         p[i + 1] = y;
+      }
+      a.needsUpdate = true;
+    }
+    if (this.mist.visible) {
+      // the swathes creep along with the wind and breathe a little; a swathe out of the box comes back on the other side
+      const a = this.mist.geometry.getAttribute("position") as Float32BufferAttribute;
+      const p = a.array as Float32Array;
+      const t = now / 1000;
+      const creep = 0.12 + drift * 0.12;
+      for (let i = 0; i < p.length; i += 3) {
+        let x = p[i] + creep * dt;
+        const z = p[i + 2] + Math.sin(t * 0.3 + i) * 0.05 * dt;
+        if (x > b.x1 + 3) x = b.x0 - 3;
+        p[i] = x;
+        p[i + 2] = z;
       }
       a.needsUpdate = true;
     }
@@ -1728,7 +1779,17 @@ export class FloorplanViewer {
 
   /** Where the sun's arc stands: around the middle of the house (or the whole plot, #833), on its ground. */
   private arcFrame(): SunArcFrame | null {
-    return sunArcFrame(this.building);
+    const frame = sunArcFrame(this.building);
+    if (!frame || !this.building) return frame;
+    // floors pulled apart: the ring and the arc ride with the ground floor, not with the cellar below it (#998)
+    const gf = groundFloor(this.building);
+    const fv = gf ? this.floorMap.get(gf.id) : undefined;
+    return fv?.y ? { ...frame, y: frame.y + fv.y } : frame;
+  }
+
+  /** Whether the view is being turned right now: a finger or the mouse on it, a flight, or the inertia after a swipe. */
+  cameraBusy(): boolean {
+    return this.controls.busy || (this.lastFrame > 0 && performance.now() - this.lastFrame < 100);
   }
 
   /** How dark it is outside (0 by day, 1 from 6° below the horizon on); 0 without a sun. */
@@ -1739,95 +1800,125 @@ export class FloorplanViewer {
 
   /**
    * At night the light of a lit room falls out of its windows onto the ground in front: a soft patch in the
-   * room's light colour, fading outwards, less behind a lowered blind (⚙ House, on by default). Only the floors
-   * at ground level, a handful of triangles per window.
+   * lamp's colour, fading with the distance from the lamp, less behind a lowered blind (⚙ House, on by default).
+   * Each patch is the lamp's cone through the window opening: it lies shifted away from the lamp, and the wall
+   * beside the window shades the ground in front of it (#954). Only the floors at ground level.
    */
   private buildSpill(fv: FloorView, sources: LightSource[]): void {
     const b = this.building;
     const night = b?.settings.window_glow === false || this.options.safeFx ? 0 : this.nightFactor();
     const gf = b && night > 0 ? groundFloor(b) : null;
     const ground = !!gf && Math.abs(fv.floor.elevation - gf.elevation) < 0.5;
-    // the light per light zone: colour weighted by brightness. A lamp's level keeps a floor of 0.2 so a dimmed
-    // lamp still shows in its room; what falls out of the windows follows the real brightness – a lamp at 1 %
-    // lit the whole terrace in its colour (#954)
+    // a lamp's level keeps a floor of 0.2 so a dimmed lamp still shows in its room; what falls out of the windows
+    // follows the real brightness – a lamp at 1 % lit the whole terrace in its colour (#954)
     const cast = (level: number) => Math.pow(Math.max(0, (level - 0.2) / 0.8), 2);
-    const zoneLight = new Map<number, [number, number, number, number]>();
-    if (ground) {
-      for (const l of sources) {
-        const z = zoneLight.get(l.room) ?? [0, 0, 0, 0];
-        const k = cast(l.level);
-        z[0] += l.color[0] * k;
-        z[1] += l.color[1] * k;
-        z[2] += l.color[2] * k;
-        z[3] += k;
-        zoneLight.set(l.room, z);
-      }
-    }
+    const lamps = ground ? sources.filter((l) => cast(l.level) > 0.02) : [];
     const covers = [...fv.openings.values()].map((o) => (o.cover ?? 0).toFixed(1)).join(",");
-    const sig = ground && zoneLight.size ? `${night.toFixed(2)}|${[...zoneLight].map(([k, v]) => `${k}:${v.map((x) => x.toFixed(2)).join("/")}`).join(";")}|${covers}` : "";
+    const sig = lamps.length ? `${night.toFixed(2)}|${lamps.map((l) => `${l.room}:${l.x.toFixed(2)},${l.y.toFixed(2)},${l.z.toFixed(2)},${l.level.toFixed(2)},${l.color.map((c) => c.toFixed(2)).join("/")}`).join(";")}|${covers}|${fv.lightSurface ? 1 : 0}` : "";
     if (sig === fv.spillSig) return;
     fv.spillSig = sig;
     const buf = new GeoBuffer();
     if (sig) {
+      const blockers = fv.lightSurface?.blockers ?? [];
+      // the surface on top where areas overlap (a terrace on the lawn): the light lies on it, not under it (#893);
+      // the house itself is no ground to light – the patch ends at the next wall of the house
+      const rooms = fv.floor.rooms.filter((r) => r.points.length >= 3);
+      const surfaceAt = (x: number, z: number) => {
+        const room = rooms.find((r) => pointInPolygon([x, z], r.points));
+        return room ? (room.outdoor ? 0 : 99) : outdoorSurface(fv.floor, x, z);
+      };
+      const MAX_OUT = 5;
+      const cols: [number, number][] = [[0, 0], [0.18, 1], [0.82, 1], [1, 0]];
       for (const info of fv.geo.openings) {
         if (info.opening.type !== "window" || !info.exterior) continue;
         const ri = fv.floor.rooms.findIndex((r) => r.id === info.opening.room_id);
-        const light = ri < 0 ? undefined : zoneLight.get(zoneOf(fv.lightZones, ri));
-        if (!light || light[3] < 0.02) continue;
+        if (ri < 0) continue;
+        const zone = zoneOf(fv.lightZones, ri);
         const st = fv.openings.get(info.opening.id);
         const open = 1 - (st?.cover ?? 0);
         const height = info.top - info.sill;
         if (open < 0.05 || height < 0.1) continue;
-        const peak = Math.max(light[0], light[1], light[2], 1e-6);
-        const k = 0.3 * night * Math.min(1, light[3]) * open * Math.min(1, height / 1.2);
-        const near = new Color((light[0] / peak) * k, (light[1] / peak) * k, (light[2] / peak) * k);
-        // from the wall's outer face outwards, wider and fainter the further out (a tall window throws it further)
         const out: [number, number] = [-info.toRoom[0], -info.toRoom[1]];
-        const reach = Math.min(3.5, 0.8 + 1.1 * info.top);
-        // the surface on top where areas overlap (a terrace on the lawn): the light lies on it, not under it (#893)
-        const rooms = fv.floor.rooms.filter((r) => r.points.length >= 3);
-        const surfaceAt = (x: number, z: number) => (!rooms.length || rooms.some((r) => pointInPolygon([x, z], r.points)) ? 0 : outdoorSurface(fv.floor, x, z));
-        // the patch lies on the ground just in front of the window and ends where that ground does: a window onto
-        // a balcony lights the balcony, not the driveway below it past its edge (#822)
-        const groundAt = (s: number, d: number, spread: number) => {
-          const t = d / reach;
-          const sx = -spread * t + s * (info.width + 2 * spread * t);
-          return surfaceAt(info.start[0] + info.axis[0] * sx + out[0] * (info.faceOut + d), info.start[1] + info.axis[1] * sx + out[1] * (info.faceOut + d));
-        };
-        const foot = groundAt(0.5, 0.05, 0);
-        const len = spillLength((s, d) => groundAt(s, d, 0.35 * reach), foot, reach);
-        if (len < 0.2) continue;
-        const spread = 0.35 * len;
-        // each corner lies just above the ground under it: a path or lawn a few centimetres higher than the ground at
-        // the window would otherwise cover the patch – seen from close up it went missing (#893)
-        const at = (s: number, d: number) => {
-          const t = d / len;
-          const sx = -spread * t + s * (info.width + 2 * spread * t);
-          const x = info.start[0] + info.axis[0] * sx + out[0] * (info.faceOut + d);
-          const z = info.start[1] + info.axis[1] * sx + out[1] * (info.faceOut + d);
-          return [x, Math.max(foot, surfaceAt(x, z)) + 0.014, z];
-        };
-        // fading outwards and soft at both sides, in rows short enough to follow a step in the ground
-        const rows = Math.max(4, Math.ceil(len / 0.3));
-        const cols: [number, number][] = [[0, 0], [0.18, 1], [0.82, 1], [1, 0]];
-        for (let i = 0; i < rows; i++) {
-          const d0 = (len * i) / rows;
-          const d1 = (len * (i + 1)) / rows;
-          const f0 = (1 - i / rows) ** 2;
-          const f1 = (1 - (i + 1) / rows) ** 2;
-          for (let j = 0; j + 1 < cols.length; j++) {
-            const [s0, w0] = cols[j];
-            const [s1, w1] = cols[j + 1];
-            const a = at(s0, d0);
-            const bb = at(s1, d0);
-            const c = at(s1, d1);
-            const d = at(s0, d1);
-            const ca = near.clone().multiplyScalar(f0 * w0);
-            const cb = near.clone().multiplyScalar(f0 * w1);
-            const cc = near.clone().multiplyScalar(f1 * w1);
-            const cd = near.clone().multiplyScalar(f1 * w0);
-            buf.tri(a, bb, c, ca, cb, cc);
-            buf.tri(a, c, d, ca, cc, cd);
+        const point = (sx: number, d: number): [number, number] => [info.start[0] + info.axis[0] * sx + out[0] * d, info.start[1] + info.axis[1] * sx + out[1] * d];
+        const [fx, fz] = point(info.width / 2, info.faceOut + 0.05);
+        const footAtWall = surfaceAt(fx, fz);
+        if (footAtWall > 50) continue;
+        const midY = (info.sill + info.top) / 2;
+        for (const l of lamps) {
+          if (l.room !== zone) continue;
+          // the part of the window the lamp sees past the walls of its room (a lamp around the corner sees none)
+          const seen = [0.1, 0.3, 0.5, 0.7, 0.9].filter((s) => {
+            const [px, pz] = point(s * info.width, -0.02);
+            return !shadowed(l, blockers, px, midY, pz);
+          });
+          if (!seen.length) continue;
+          const s0 = Math.max(0, seen[0] - 0.1);
+          const s1 = Math.min(1, seen[seen.length - 1] + 0.1);
+          const win = { start: point(s0 * info.width, 0), axis: info.axis, out, width: (s1 - s0) * info.width, sill: info.sill, top: info.top };
+          let c = windowCast(l, win, footAtWall, MAX_OUT);
+          if (!c) continue;
+          // the patch begins outside the wall; where it lands lower or higher than at the wall (a sunken terrace),
+          // the rays run on to that ground
+          const begin = Math.max(c.d0, info.faceOut + 0.02);
+          const foot = surfaceAt(...point(s0 * info.width + win.width / 2, begin));
+          if (foot > 50) continue;
+          if (Math.abs(foot - footAtWall) > 0.1) {
+            c = windowCast(l, win, foot, MAX_OUT);
+            if (!c) continue;
+          }
+          const d0 = Math.max(c.d0, info.faceOut + 0.02);
+          if (c.d1 - d0 < 0.15) continue;
+          const lateral = (s: number, d: number) => {
+            const [e0, e1] = c!.edge(d);
+            return s0 * info.width + e0 + s * (e1 - e0);
+          };
+          // the patch ends where the ground leaves its level: at the edge of a balcony or a terrace (#822)
+          const len = spillLength((s, d) => surfaceAt(...point(lateral(s, d0 + d), d0 + d)), foot, c.d1 - d0);
+          if (len < 0.15) continue;
+          const capped = c.d1 >= MAX_OUT && d0 + len > MAX_OUT - 0.1;
+          const peak = Math.max(l.color[0], l.color[1], l.color[2], 1e-6);
+          // several lamps in the room each throw their own patch: together not much brighter than one
+          const k = (0.3 * night * cast(l.level) * open * Math.min(1, height / 1.2)) / Math.sqrt(lamps.filter((o) => o.room === zone).length);
+          const near = new Color((l.color[0] / peak) * k, (l.color[1] / peak) * k, (l.color[2] / peak) * k);
+          // fainter the further from the lamp and the flatter the light meets the ground: a ceiling lamp two metres
+          // inside gives the full patch just outside the window, one far back in the room a faint one
+          const fall = (x: number, y: number, z: number) => {
+            const d2 = (x - l.x) ** 2 + (y - l.y) ** 2 + (z - l.z) ** 2;
+            const q = 1 / (1 + d2 / 9);
+            const facing = Math.max(0, l.y - y) / Math.sqrt(d2 || 1e-6);
+            return Math.min(1, (q * Math.sqrt(q) * facing) / 0.15);
+          };
+          // each corner lies just above the ground under it: a path or lawn a few centimetres higher than the ground
+          // at the window would otherwise cover the patch – seen from close up it went missing (#893)
+          const at = (s: number, d: number): [number, number, number] => {
+            const [x, z] = point(lateral(s, d), d);
+            const g = surfaceAt(x, z);
+            return [x, (g > 50 ? foot : Math.max(foot, g)) + 0.014, z];
+          };
+          const weight = (p: [number, number, number], d: number) => {
+            const soft = Math.min(1, (d - d0) / 0.25 + 0.3);
+            const end = capped ? Math.min(1, (d0 + len - d) / 1.2) : 1;
+            return fall(p[0], p[1], p[2]) * soft * end;
+          };
+          // in rows short enough to follow a step in the ground, soft at both sides
+          const rows = Math.max(4, Math.ceil(len / 0.3));
+          for (let i = 0; i < rows; i++) {
+            const da = d0 + (len * i) / rows;
+            const db = d0 + (len * (i + 1)) / rows;
+            for (let j = 0; j + 1 < cols.length; j++) {
+              const [sa, wa] = cols[j];
+              const [sb, wb] = cols[j + 1];
+              const a = at(sa, da);
+              const bb = at(sb, da);
+              const cc = at(sb, db);
+              const dd = at(sa, db);
+              const ca = near.clone().multiplyScalar(weight(a, da) * wa);
+              const cb = near.clone().multiplyScalar(weight(bb, da) * wb);
+              const ccc = near.clone().multiplyScalar(weight(cc, db) * wb);
+              const cd = near.clone().multiplyScalar(weight(dd, db) * wa);
+              buf.tri(a, bb, cc, ca, cb, ccc);
+              buf.tri(a, cc, dd, ca, ccc, cd);
+            }
           }
         }
       }
@@ -2395,6 +2486,16 @@ export class FloorplanViewer {
    * A wall lamp from a furniture pack: the centre of its glowing parts (plan x, height, plan z), where its halo and its
    * light sit (#680); null for any other lamp and for a pack lamp without glowing parts (they keep their old places).
    */
+  /** The glowing parts of a pack lamp with several of them (a track's spots), each a light of its own (#1034). */
+  private packLightsAt(d: DeviceMarker): [number, number, number][] {
+    if (!d.pack || d.lamp === "wall" || d.lamp === "strip") return [];
+    const item = packItem(d.pack);
+    if (!item) return [];
+    const [w, dd, h] = d.size ?? LAMP_SIZE[d.lamp ?? "ceiling"];
+    const pts = packGlowCentres(item, { x: d.x, z: d.z, rotation: d.rotation ?? 0, w, d: dd, h, mirror: d.mirror }, d.base ?? 0);
+    return pts.length > 1 ? pts : [];
+  }
+
   private packLightAt(d: DeviceMarker): [number, number, number] | null {
     if (d.lamp !== "wall" || !d.pack) return null;
     const item = packItem(d.pack);
@@ -2448,6 +2549,12 @@ export class FloorplanViewer {
           }
         }
       } else {
+        // a lamp with several glowing parts (a track with three spots) lights from each of them (#1034)
+        const many = this.packLightsAt(d);
+        if (many.length) {
+          for (const p of many) out.push({ x: p[0], y: Math.min(y, p[1]), z: p[2], color, level: glow.level * 0.8, kind, room });
+          continue;
+        }
         // a wall lamp from a pack shines from its glowing parts (the lantern's glass), not from in front of it (#680)
         const at = this.packLightAt(d);
         out.push({ x: at ? at[0] : d.x, y: at ? at[1] : y, z: at ? at[2] : d.z, color, level: glow.level, kind, room });
@@ -2952,7 +3059,8 @@ export class FloorplanViewer {
           this.snowMat ??= new MeshBasicMaterial({ color: 0xf1f5ff, transparent: true, side: DoubleSide, forceSinglePass: true, depthWrite: false });
           this.snowMat.opacity = 0.85 * this.roofSnow;
           const mesh = new Mesh(snow, this.snowMat);
-          mesh.renderOrder = 9;
+          // under the living solar overlay (render order 9): the modules and their figures stay readable in the snow (#1031)
+          mesh.renderOrder = 8;
           part.add(mesh);
         }
       }
@@ -3197,6 +3305,9 @@ export class FloorplanViewer {
       moving = true;
       this.applyFloor(fv);
     }
+    // the sun's arc stands on the ground floor and glides with it (#998); its signature holds the height, so this
+    // is cheap once everything stands still
+    if (moving && this.sunFx) this.buildSunFx();
     return moving;
   }
 
@@ -3585,6 +3696,7 @@ export class FloorplanViewer {
         bollard: base + h - 0.08,
         garden: base + h - 0.03,
       }[d.lamp];
+      const many = this.packLightsAt(d);
       // a wall light glows in front of the wall
       const push = (x: number, z: number, k = 1) => {
         hp.push(x, y, z);
@@ -3610,23 +3722,26 @@ export class FloorplanViewer {
           hc.push(...glow.color.map((c) => c * glow.level * 0.7));
         } else push(d.x - Math.sin(ang) * (dd / 2 + 0.05), d.z + Math.cos(ang) * (dd / 2 + 0.05));
       }
+      else if (many.length) for (const p of many) push(p[0], p[2], 0.8);
       else push(d.x, d.z);
       if (this.highQuality && (d.lamp === "downlight" || d.lamp === "spot")) {
-        // soft cone from the lamp to the floor, fading towards the floor
+        // soft cone from the lamp to the floor, fading towards the floor – one under each spot of a track (#1034)
         const top = new Color(...glow.color.map((c) => c * 0.09 * glow.level) as [number, number, number]);
         const bottom = new Color(0, 0, 0);
-        const r0 = Math.max(0.03, w / 2);
-        const r1 = 0.45 + 0.35 * glow.level;
+        const r0 = Math.max(0.03, many.length ? Math.min(w, dd) / 2 : w / 2);
+        const r1 = (0.45 + 0.35 * glow.level) * (many.length ? 0.8 : 1);
         const n = 16;
-        for (let i = 0; i < n; i++) {
-          const a0 = (i / n) * Math.PI * 2;
-          const a1 = ((i + 1) / n) * Math.PI * 2;
-          const t0 = [d.x + Math.cos(a0) * r0, y, d.z + Math.sin(a0) * r0];
-          const t1 = [d.x + Math.cos(a1) * r0, y, d.z + Math.sin(a1) * r0];
-          const b0 = [d.x + Math.cos(a0) * r1, 0.02, d.z + Math.sin(a0) * r1];
-          const b1 = [d.x + Math.cos(a1) * r1, 0.02, d.z + Math.sin(a1) * r1];
-          cones.tri(t0, b0, b1, top, bottom, bottom);
-          cones.tri(t0, b1, t1, top, bottom, top);
+        for (const [cx, cz] of many.length ? many.map((p) => [p[0], p[2]] as [number, number]) : [[d.x, d.z] as [number, number]]) {
+          for (let i = 0; i < n; i++) {
+            const a0 = (i / n) * Math.PI * 2;
+            const a1 = ((i + 1) / n) * Math.PI * 2;
+            const t0 = [cx + Math.cos(a0) * r0, y, cz + Math.sin(a0) * r0];
+            const t1 = [cx + Math.cos(a1) * r0, y, cz + Math.sin(a1) * r0];
+            const b0 = [cx + Math.cos(a0) * r1, 0.02, cz + Math.sin(a0) * r1];
+            const b1 = [cx + Math.cos(a1) * r1, 0.02, cz + Math.sin(a1) * r1];
+            cones.tri(t0, b0, b1, top, bottom, bottom);
+            cones.tri(t0, b1, t1, top, bottom, top);
+          }
         }
       }
     }

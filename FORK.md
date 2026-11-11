@@ -1,17 +1,19 @@
 # Dieser Fork: eigene Möbel
 
-## Stand 3.0.3.1
+## Stand 3.0.6.1
 
-Upstream 3.0.3 eingepflegt, 188 Commits ab 2.0.6. Die Fork-Änderungen stehen
-unverändert daneben, zwei Stellen waren nachzuziehen:
+Upstream 3.0.6 eingepflegt (3.0.3: 188 Commits ab 2.0.6; danach 26 weitere bis
+3.0.6). Die Fork-Änderungen stehen unverändert daneben. Eine Stelle war beim
+Sprung auf 3.0.3 nachzuziehen und gilt weiter:
 
-* `frontend/src/viewer/lighting.ts`: die Umrissprüfung des Forks folgt jetzt auch
-  der Schräge einer schrägen Wand (`h1`). Sonst blockt der Umriss Licht, das über
-  der Schräge vorbeigeht (Upstream #821).
-* `frontend/build.mjs`: Budget des Karten-Editors von 318 auf 320 KB, die eigenen
-  Felder des Forks passen sonst nicht hinein.
+* `frontend/src/viewer/lighting.ts`: die Umrissprüfung des Forks folgt auch der
+  Schräge einer schrägen Wand (`h1`). Sonst blockt der Umriss Licht, das über der
+  Schräge vorbeigeht (Upstream #821).
 
-Gemessen am 2026-11-09: Frontend 606 Tests grün, `tsc --noEmit` sauber, alle
+Die Budgets in `frontend/build.mjs` sind seit 3.0.6 die des Originals; der
+Karten-Editor passt wieder hinein, der Fork-Hinweis bleibt als Warnung stehen.
+
+Gemessen am 2026-11-11: Frontend 613 Tests grün, `tsc --noEmit` sauber, alle
 Bundles im Budget; Python 212 Tests grün mit
 `pytest-homeassistant-custom-component` 0.13.316 (Home Assistant 2026.2.3),
 `ruff check`, `ruff format --check` und `mypy custom_components/neonplan3d` sauber.

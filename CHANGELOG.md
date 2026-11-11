@@ -4,6 +4,50 @@ All notable changes to NeonPlan 3D. The full notes in German and English are on 
 [releases page](https://github.com/Mastershort/neonplan3d/releases). Ideas and votes:
 [Discussions → Ideas](https://github.com/Mastershort/neonplan3d/discussions/categories/ideas).
 
+## 3.0.6
+
+### Added
+- **Effects in the editor's 3D pane can rest:** a chip **Effects** beside *Auto / Cut* switches weather, sun, pets and ghost off in the pane beside the plan – a quiet pane for drawing; the 3D view itself is not affected (#1033, thanks daene85).
+
+### Fixed
+- **A new plan showed roofs of the main plan:** on the property, a plan whose rooms were all deleted still brought its leftover roof sections along (a pent roof in the air looked like a glass table) – a building without rooms has no roof on the property any more (#986, thanks Ollywood71).
+- **Snow on a sloping lawn** followed the high edge and floated over the low side; it now lies on the slope (#1036, thanks Anrolosia).
+- **Snow on the roof covered the solar modules' figures;** the living solar overlay now lies on top of the snow (#1031, thanks PetrMa).
+- **A track with several spots** lit only from its middle with one narrow cone; a pack lamp with several glowing parts now lights from each of them, with a cone under each spot (#1034, thanks daene85).
+- **Time travel, day summary:** a room's temperature range used every temperature sensor of its area, dew point and comfort indices included; it now takes the room's own temperature (⚙ Room climate) or the plain temperature sensors. Switches that drive a lamp of the plan count as lights (#1032, thanks abgestumpft).
+- **Free-form outdoor areas had no corners to type in:** the form now lists every corner with X and Y like a room's, so edges can be made straight and parallel; × removes a corner (#1041, thanks daene85).
+- **A lamp without a light showed an "Off" pin** in the marker modes *All* and *In the room*; it could not be tapped. Such a lamp gets no pin any more (#982, thanks daene85).
+- **Import page: a RoomPlan scan of a whole home** whose walls are listed only per room was not recognised; it is now read like any other scan.
+
+### Changed
+- **The frames pack brings its own module:** the living faces of the "Digital Picture Frames" pack (calendar, lists, board, people, camera, cover, person, photos, weather) and their pop-ups now come with the pack (release 2) as a signed module, like Heat Pro; NeonPlan itself only provides the stage. Settings made with 3.0.5 are read as they are. Until an administrator has approved the module under Extensions (the usual review), the frames show a dark pane.
+- **Module API:** a module may lay a picture on the screen face of a piece of furniture (`screen` piece), open a pop-up of plain sections over the view (`popups`, `host.openPopup`), and ask the editor for uploaded pictures (`images` field); the host tells a module where people stand, which look is on and whether the tablet level runs.
+
+## 3.0.5
+
+### Added
+- **Pack "Digital Picture Frames" (shop):** frames whose face lives – a calendar with the next days (what runs now, birthdays, a reminder before an event, new events from the pop-up), a shopping or to-do list you tick off, a family board (calendar, who is home, bins, weather), people, a camera that pops up large when the doorbell rings, the cover of what plays, a person, a photo slideshow, the weather with a three-day forecast and a rain warning. A tap on a frame opens its content large in the middle of the view. The Deco pack's digital frame joins in once the pack is installed.
+
+### Fixed
+- **Window light at night as the lamp's cone:** the patch in front of a window is now the lamp's light through the opening – shifted away from the lamp, fainter with the distance, and nothing from a lamp around the corner that a wall hides from the window. A dining-room lamp no longer lit the terrace in front of the bedroom (#954, thanks rolandarends).
+- **Turned gable on a bigger roof:** a small roof section turned at an angle on a larger one (a 45° gable over a pointed bay in a hip roof) was treated as a dormer and cut boxes out of the slope while vanishing itself; it now meets the roof below like a wing (Discord, thanks Thomas).
+- **Spot grid: "None" for the light stayed automatic:** a grid of spots placed with the light set to "None" still picked a free light of the room (#982, thanks daene85).
+- **No state sync while the view turns:** new states wait until the finger (or the inertia) has come to rest, so a sync no longer costs frames in the middle of a swipe on a slow wall tablet (#952, thanks zanzei26).
+
+## 3.0.4
+
+### Added
+- **Ground mist in fog:** with the fog effect switched on, soft swathes of mist drift low over the ground around the house; the grey behind the house alone was hard to see (#990, thanks PetrMa).
+- **Outdoor steps below the floor level:** outside the rooms the height above the floor may go below 0 (down to −5 m) – steps down to a sunken terrace or a light well (#897, thanks fammastrodaiuto).
+
+### Fixed
+- **Own symbol on lamps and in the room list:** a lamp's own symbol shows in its pin, and the room panel's device list shows the own symbols of furniture and placed devices (#1005, thanks EduK85).
+- **Fixed colour and moods:** a light whose integration reports a mood or scene as its "effect" (Loxone) no longer turns through the colour wheel; a lamp with a fixed colour never animates, and a white-only light never runs a colour effect (#977, thanks chRyX-giT).
+- **Sun arc and compass with the floors pulled apart:** the ring now rides with the ground floor instead of staying down at the cellar (#998, thanks RkcCorian).
+- **Roof in a card with some rooms of the top floor:** a flat or gable roof kept the footprint of the shown rooms only, so its slopes and roof windows no longer matched; the card keeps the whole house's roof (#997, thanks RkcCorian).
+- **Dashboard button covered the full screen button:** a card with both a dashboard path and the full screen button drew the dashboard button on top of it (D1002, thanks karli4711).
+- **U-stair opening one tread too long:** with an even number of risers the second flight is a tread shorter than the first, but the floor above was cut over the whole footprint; the opening now ends at the top tread (#742, thanks daene85).
+
 ## 3.0.3
 
 ### Added
