@@ -1,5 +1,40 @@
 # Dieser Fork: eigene Möbel
 
+## Stand 4.0.1.1
+
+Upstream 4.0.1 eingepflegt, 197 Commits ab 3.0.6: die Stile (3.1 und 3.2), der
+echte Himmel (3.5), Möbel 3.4, und mit 4.0 die Handy-Ansicht mit eigener
+Leiste und eigenem Karten-Editor. Die Fork-Änderungen stehen unverändert
+daneben, zwei Stellen waren nachzuziehen:
+
+* `frontend/src/i18n-editor.ts`: Das Original hat am 2026-11-15 alle Texte, die
+  nur der Editor braucht, aus `i18n.ts` dorthin verlagert, damit das
+  Haupt-Bundle klein bleibt (709,8 statt 870 KB). Die zwölf eigenen Texte des
+  Forks sind mitgewandert, in Deutsch und Englisch: die Etagen-Zuordnung
+  (`floor_attached*`), die Schwelle der Regenwarnung
+  (`rain_warning_entity*`) und die Rahmenlage (`frame_pos*`). Die weiteren
+  Sprachen stehen wie bisher in `lang/<code>.json`.
+* `frontend/build.mjs`: Das 3D-Bundle des Originals liegt mit 928,0 KB genau auf
+  seinem Budget. Mit den Zusätzen des Forks sind es 928,7 KB, darum steht das
+  Budget dort auf 932 KB. Alle anderen Budgets sind die des Originals.
+
+Weiter unverändert gültig: die Umrissprüfung in
+`frontend/src/viewer/lighting.ts` folgt auch der Schräge einer schrägen Wand
+(`h1`), sonst blockt der Umriss Licht, das über der Schräge vorbeigeht
+(Upstream #821).
+
+Zur Fensterbank: `sill_board` und `sillBoards()` sind inzwischen Code des
+Originals (schon in 3.0.6 enthalten), die Fassung des Forks ist damit
+abgelöst. Eigen bleibt dort allein die Rahmenlage in der Wand
+(`frame_pos`, `frameMid()` in `viewer/openings.ts`).
+
+Gemessen am 2026-11-23: Frontend 730 Tests grün, `tsc --noEmit` sauber, alle
+Bundles im Budget (3D 928,7 von 932 KB, Editor 1154,2 von 1160 KB, Haupt-Bundle
+778,1 von 870 KB); Python 221 Tests grün mit
+`pytest-homeassistant-custom-component` 0.13.316 (Home Assistant 2026.2.3),
+`ruff check`, `ruff format --check` und `mypy custom_components/neonplan3d`
+sauber.
+
 ## Stand 3.0.6.1
 
 Upstream 3.0.6 eingepflegt (3.0.3: 188 Commits ab 2.0.6; danach 26 weitere bis

@@ -23,20 +23,24 @@
 
 ### The original 3D floor plan for Home Assistant
 
-**Draw your home right inside Home Assistant – and live in it as a glowing neon house.**<br>
+**Draw your home right inside Home Assistant – and live in it as a glowing neon house, or in any style you like.**<br>
 Lights glow in their colours, blinds move, doors open, cameras watch, energy flows through the walls – and you can simply talk to it.
 
-[![Open your Home Assistant instance and open the NeonPlan 3D repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Mastershort&repository=neonplan3d&category=integration)
+[![Open your Home Assistant instance and open the NeonPlan 3D repository in the Marketplace.](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=Mastershort&repository=neonplan3d&category=integration)
 
 [![Latest release](https://img.shields.io/github/v/release/Mastershort/neonplan3d?label=release&color=00e5ff)](https://github.com/Mastershort/neonplan3d/releases)
-[![HACS default](https://img.shields.io/badge/HACS-default-41BDF5?logo=homeassistantcommunitystore&logoColor=white)](https://hacs.xyz/)
+[![Home Assistant Marketplace](https://img.shields.io/badge/Marketplace-default-41BDF5?logo=homeassistant&logoColor=white)](https://www.home-assistant.io/integrations/marketplace/)
 [![Free & open source](https://img.shields.io/badge/free-open%20source%20(MIT)-2ea44f)](https://github.com/Mastershort/neonplan3d/blob/main/LICENSE)
 [![Runs locally](https://img.shields.io/badge/cloud-none%20needed-8a2be2)](#privacy)
 [![Discord](https://img.shields.io/badge/Discord-community-5865F2?logo=discord&logoColor=white)](https://discord.gg/SSdVVFsev7)
 
 **[▶️ Try the online demo](https://neonplan3d.mastershort.de/)** · **[📖 Manual](https://mastershort.de/en/neonplan3d/manual/?lang=en)** · **[📖 Anleitung](https://mastershort.de/neonplan3d/anleitung/?lang=de)** · **[💬 Discord](https://discord.gg/SSdVVFsev7)**
 
-[![NeonPlan 3D: the whole property in neon – the house with its solar roof and live energy cards, the garden house beside it](https://raw.githubusercontent.com/Mastershort/neonplan3d/main/docs/images/plans-site-en.jpg)](https://neonplan3d.mastershort.de/)
+## Neon was just the beginning.
+
+**Your home in every style – new in 3.1, free for everyone.**
+
+[![One house – many styles: the same house in Neon, Synthwave, Homely, Architect's model and Winter evening](https://raw.githubusercontent.com/Mastershort/neonplan3d/main/docs/images/styles-hero-en.jpg)](#-new-in-31--your-home-in-every-style)
 
 </div>
 
@@ -48,6 +52,7 @@ Lights glow in their colours, blinds move, doors open, cameras watch, energy flo
 |---|---|
 | 🏘️ **Your whole property** | The house, the garage, the garden house, the holiday flat – each on its own floor plan, all of them together in 3D. |
 | 🧸 **Single rooms on your dashboard** | A card that shows just the kids' room, the guest room or the granny flat – right next to your other cards. |
+| 🎨 **Your home in every style** | Neon, Synthwave, homely with wooden floors and wall colours, Architect's model, Winter evening – or your own style. By time of day, by voice, by automation. |
 | 📱 **Runs on old wall tablets** | A tablet quality level, nothing is drawn while nothing changes – made for old Fire tablets. |
 | 🔒 **100 % local** | No cloud, no account, no external program. Everything lives in your Home Assistant. |
 | 💚 **Free and open source** | Everything you need day to day is free – [see the big list](#-everything-that-is-free). |
@@ -55,6 +60,40 @@ Lights glow in their colours, blinds move, doors open, cameras watch, energy flo
 > **No other floor plan for Home Assistant draws several houses and flats, shows single rooms on the dashboard and puts your whole property in 3D.** The original keeps leading. 😉
 
 [![NeonPlan 3D: the house turns with its solar roof and energy cards, voice control opens the living room, the doorbell rings and the live director looks through the front door camera](https://raw.githubusercontent.com/Mastershort/neonplan3d/main/docs/images/demo.webp)](https://neonplan3d.mastershort.de/)
+
+---
+
+## 🪄 New in 3.4 – furniture that lives
+
+[![The same kitchen with its door contacts closed and open](https://raw.githubusercontent.com/Mastershort/neonplan3d/main/docs/images/live-furniture-hero-en.jpg)](https://github.com/Mastershort/neonplan3d/releases)
+
+- 🚪 **Doors, drawers and flaps move with Home Assistant** – open the fridge and its door opens in 3D, the oven door folds down, a drawer slides out. Status lights glow, fans turn, prints grow with their progress. Try it free with the kitchen and bedroom taster packs.
+- 🎨 **Finishes, free for everyone** – your own colours for wood, fabric and fronts of every piece of furniture in the homely styles.
+- 🔒 **Every piece of furniture at a glance** – the library also shows what the packs hold, with a lock and a picture.
+
+---
+
+## 🎨 New in 3.1 – your home in every style
+
+You love the neon. But on the living-room wall in the evening, a homely house with wooden floors and warm walls is sometimes just nicer. **Now you choose.** The editor and the controls stay neon – the house wears whatever you like.
+
+| Homely, with your wall colours | Synthwave | Architect's model |
+|---|---|---|
+| Wooden floors, tiles, light walls in the colours you pick per room or per wall, soft shadows under the furniture. *Homely evening* and *Winter evening* dim the house warmly. | Purple and pink, glowing edges – the eighties called. | White, calm, like a model on the architect's desk. |
+
+- 🎨 **Eleven styles to start with** – Neon, Blueprint, Day, Night / Focus, Synthwave, Homely, Homely evening, Winter evening, Architect's model, Pastel, Warm / Wood & paper. Lights, open windows and running devices keep their signal colours in every style.
+- ✨ **Your own styles** – copy any style and turn every knob: real materials or your own palette, evening mood, floor texture, shadows, background. You see each change live on the house.
+- 🕒 **By time of day** – homely during the day, warm in the evening, calm at night: switched by the sun or by the clock. Every card can have its own evening and night style.
+- 🗣️ **By voice and automation** – "NeonPlan style homely", the action `neonplan3d.set_style`, or a helper entity your automations set.
+- 📱 **Still runs on old wall tablets** – the styles only colour differently, they cost no extra performance.
+
+Pick a style in the 3D view under **⚙ → 🎨**, build your own under **⚙ Settings → 🎨 Styles** in the editor. [How it all works →](docs/manual.md#512-styles-new-in-31)
+
+### 🔍 New in 3.2 – zoom in and it turns homely
+
+Neon from afar, homely up close: pick a second style under **When zooming in** and the house flows into it as you come closer – just the room you zoom into, or every room. No reload, still fine on old wall tablets.
+
+[![Zooming into the living room: it turns homely while the kitchen next to it stays neon](https://raw.githubusercontent.com/Mastershort/neonplan3d/main/docs/images/zoom-style.webp)](docs/manual.md#512-styles-new-in-31)
 
 ---
 
@@ -138,13 +177,13 @@ Not drawing at all? The **[import page](https://neonplan3d.mastershort.de/import
 | ![A portrait wall tablet with the room panel](https://raw.githubusercontent.com/Mastershort/neonplan3d/main/docs/images/tablet-portrait-room.jpg) | **Made for the wall** – kiosk mode with idle return, night dimming and a slow orbit as screensaver, portrait layout, full screen, "Reload screens" for every tablet after an update. |
 | ![A warning banner with the room pulsing red](https://raw.githubusercontent.com/Mastershort/neonplan3d/main/docs/images/view-alert-banner.jpg) | **Safety, always free** – smoke, gas, CO, water, alarm, a window open in the rain and power outages pulse in their room, with a banner and a jump there – now from every floor plan. |
 
-### 🌈 Three looks
+### 🌈 The classic looks
 
 | Neon | Blueprint | Day |
 |---|---|---|
 | ![The neon look](https://raw.githubusercontent.com/Mastershort/neonplan3d/main/docs/images/look-neon.jpg) | ![The blueprint look](https://raw.githubusercontent.com/Mastershort/neonplan3d/main/docs/images/look-blueprint.jpg) | ![The day look](https://raw.githubusercontent.com/Mastershort/neonplan3d/main/docs/images/look-day.jpg) |
 
-Plus **Auto** (day while the sun is up, neon after sunset) and an accent colour of your choice.
+Plus **Auto** (day while the sun is up, neon after sunset), an accent colour of your choice – and since 3.1 [many more styles](#-new-in-31--your-home-in-every-style).
 
 ---
 
@@ -171,10 +210,12 @@ Plus **Auto** (day while the sun is up, neon after sunset) and an accent colour 
 | 🚨 **Safety** | Smoke, gas, CO, water, alarm, power outage · window open in the rain · contacts gone silent · the room pulses red, a banner with a jump there · **Window watch** module (open in the cold) |
 | 🎈 **Fun packs** | Pets (cat, rabbit, dogs, fish) · Halloween · Winter & Christmas with fairy lights, snow and a New Year firework – free with a customer account |
 | 🔁 **Import & backup** | Restore points per plan · export and import, share as a template · full backup of every plan, picture and pack · import page for Sweet Home 3D, LiDAR scans, DXF, glTF/OBJ/STL, Floorplanner, Valetudo · AI import template |
-| 🌍 **Looks & languages** | Neon, Blueprint, Day and Auto · own accent colour · own background · 19 languages |
+| 🎨 **Styles & languages** | 11 styles: Neon, Blueprint, Day, Night, Synthwave, Homely, Homely evening, Winter evening, Architect's model, Pastel, Warm · own styles · wall and facade colours · styles by time of day, voice, automation or helper · own accent colour · own background · 20 languages |
 | 🔒 **Privacy** | Everything stays in Home Assistant · voice and locating stay local · reports only if you switch them on, each one viewable and deletable · signed packs, module code runs only after you approve it · open source |
 
 **Safety is always free. Everything you need day to day stays free.**
+
+🎁 **Free customer account (optional):** an account at [mastershort.de](https://mastershort.de/my-account/) costs nothing and needs no purchase. It brings the fun packs, the modules Window watch and The house answers and – with the newsletter – four taster packs of furniture. Enter its key under ✦ Extensions → Shop connection; they update by themselves.
 
 ---
 
@@ -202,9 +243,9 @@ Bought packs and modules are signed for your installation and update by themselv
 
 ## 📦 Installation
 
-[![Open your Home Assistant instance and open the NeonPlan 3D repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Mastershort&repository=neonplan3d&category=integration)
+[![Open your Home Assistant instance and open the NeonPlan 3D repository in the Marketplace.](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=Mastershort&repository=neonplan3d&category=integration)
 
-1. Click the button above, or open HACS and search for **NeonPlan 3D** (it is in the HACS default list).
+1. Click the button above, or open **Settings → Marketplace** and search for **NeonPlan 3D** (it is in the default list). On Home Assistant before 2026.11, use HACS the same way.
 2. Install **NeonPlan 3D** and restart Home Assistant.
 3. Add the integration: [![Open your Home Assistant instance and start setting up NeonPlan 3D.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=neonplan3d) or *Settings → Devices & services → Add integration → NeonPlan 3D*.
 4. Open **NeonPlan 3D** in the sidebar, switch to **Editor** and draw your first floor – or import a plan. More buildings: **＋ New floor plan** at the top.
