@@ -460,9 +460,11 @@ unterschreiben lassen.
 HACS installiert die Dateien aus dem Release-Tag. Bis 2.0.5 lief das über das
 Release-Asset (`zip_release` in `hacs.json`); das Original hat es mit 2.0.6
 entfernt, weil GitHubs Download-Weiterleitung einen Header über aiohttps
-8-KB-Grenze schickt und damit jeder ZIP-Download scheitert
-(hacs/integration#5643). Das ZIP bleibt am Release, aber nur noch für die
-Installation von Hand.
+8-KB-Grenze schickt und damit jeder ZIP-Download scheiterte
+(hacs/integration#5643). Der Fehler ist am 25.10.2026 behoben; das Original
+hat `zip_release` mit 3.5.2 wieder eingeschaltet. HACS lädt seitdem wieder
+das ZIP statt 82 einzelner Dateien, darum muss an jedem Release das Asset
+`neonplan3d.zip` hängen, sonst kann HACS nicht installieren.
 
 Upstream baut das ZIP im Workflow `.github/workflows/release.yml` -
 **in einem Fork laufen GitHub Actions aber erst, wenn man sie einmal von Hand
